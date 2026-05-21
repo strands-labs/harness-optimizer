@@ -1,0 +1,117 @@
+Analyze the trajectories and generate an optimized system prompt.
+
+## Inputs
+
+**Trajectory Folder**: {{ traces_folder }}
+
+**Current System Prompt to Optimize**:
+<current_system_prompt>
+{{ params.get("system_prompt", "") }}
+</current_system_prompt>
+
+---
+
+## CRITICAL: Output Requirements
+
+### 1. Preserve Original Prompt COMPLETELY
+
+Your output MUST include the **ENTIRE original system prompt above, unchanged**. Do NOT:
+- Truncate any part of it
+- Modify existing content
+- Reorganize sections
+- Remove examples or instructions
+
+### 2. Append New Content at the END
+
+After the original prompt, append a new section with your insights:
+
+```
+[ENTIRE ORIGINAL PROMPT - UNCHANGED]
+
+---
+
+## Learned Behaviors
+
+[Your new insights here]
+```
+
+### 3. Dynamic Budget for New Content
+
+The original system prompt is approximately **{{ params.get("system_prompt", "") | length }} characters**. Adjust your new content length accordingly:
+
+| Original Size | New Content Budget |
+|---------------------|-------------------|
+| < 5,000 chars | 3,000 - 5,000 chars of new insights |
+| 5,000 - 15,000 chars | 2,000 - 4,000 chars of new insights |
+| > 15,000 chars | 1,000 - 2,000 chars of new insights |
+
+Focus on **high-value insights** when budget is limited.
+
+---
+
+## Analysis Steps
+
+**Step 1: Check file sizes**
+```bash
+ls -lh {{ traces_folder }}/*.json | head -20
+```
+
+**Step 2: Categorize traces by outcome**
+```bash
+for f in {{ traces_folder }}/*.json; do
+    echo -n "$f: "
+    grep -oE '"reward":\s*[0-9.-]+' "$f" | head -1
+done 2>/dev/null | head -30
+```
+
+**Step 3: Examine sufficient traces**
+
+| Folder Size | Minimum Coverage |
+|-------------|------------------|
+| ≤ 10 traces | Examine ALL |
+| 11-30 traces | At least 70% |
+| > 30 traces | At least 50% |
+
+Balance coverage between successful and failed traces.
+
+**Step 4: Extract insights from differences**
+
+Focus on:
+- What do successful agents do that failed ones don't?
+- What mistakes do failed agents make?
+- What patterns appear across MULTIPLE traces (not one-off issues)?
+
+**Step 5: Generate optimized system prompt and submit**
+
+Write the complete optimized system prompt (original + new insights) to a file, then submit it:
+```bash
+# Write the optimized prompt to a file
+cat > /tmp/optimized_system_prompt.txt << 'PROMPT_EOF'
+[your optimized prompt here]
+PROMPT_EOF
+```
+
+Then call `submit_optimized_params(file_path_dict={"system_prompt": "/tmp/optimized_system_prompt.txt"})` to submit.
+
+---
+
+## Criteria for Good Insights
+
+### Actionability
+Each insight should have:
+- Clear **trigger condition** (WHEN...)
+- Specific **action** (DO...)
+
+Reject vague insights like "be careful" or "consider edge cases".
+
+### Coverage
+- Address different failure modes observed
+- Prioritize patterns that appear in multiple traces
+
+### Appropriate Generalization
+- Keep actions concrete and specific
+- Generalize conditions when pattern applies broadly
+
+---
+
+**Remember**: The original system prompt contains important examples and instructions. Preserving it completely is essential for good performance.
