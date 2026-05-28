@@ -1,0 +1,161 @@
+Analyze the trajectories and generate an optimized system prompt by **merging insights into the original**, not by appending a separate section.
+
+## Inputs
+
+**Trajectory Folder**: {{ traces_folder }}
+
+**Original System Prompt to Optimize**:
+<original_prompt>
+{{ params.get("system_prompt", "") }}
+</original_prompt>
+
+---
+
+## CRITICAL: Output Requirements
+
+Your output is a **revised system prompt** that integrates learned insights into the original's existing structure. It should read as a single coherent document — not `[original] + "## Learned Behaviors"`.
+
+### 1. Strict Preservation (verbatim — do NOT reword, reorder, or drop)
+
+The following blocks from the original MUST appear in your output character-for-character identical:
+
+- **Tool names** (every tool the original references)
+- **Tool input/output schemas** (JSON schemas, argument descriptions, type signatures)
+- **Output format specifications** (required response structure, required fields, required delimiters, JSON/YAML templates)
+- **Few-shot examples** (input/output pairs, demonstration dialogues)
+- **Any block the original marks as "do not modify", "required format", "template", or similar**
+
+If you are uncertain whether a block is structural vs. prose, treat it as structural and preserve verbatim.
+
+### 2. May Rewrite (integrate insights here)
+
+- Prose instructions and guidance
+- Explanations and rationale
+- Section headings and ordering (as long as structural blocks stay intact)
+- Bullet lists of do's/don'ts — you may add, remove, or edit bullets
+
+When integrating a new insight, place it in the section of the original prompt it relates to (tool usage, error handling, task decomposition, etc.). Only create a new section for topics the original does not cover at all.
+
+### 3. Safety Invariant (non-negotiable)
+
+The revised prompt MUST require the agent to confirm with the user before taking any action with real-world consequences (writes, sends, purchases, external state changes, irreversible operations).
+
+You MUST NOT introduce, and MUST REMOVE if present, any guidance that:
+- Tells the agent to act "immediately", "autonomously", or "without confirmation"
+- Treats user silence or ambiguity as approval
+- Instructs the agent to skip, bypass, or avoid confirmation steps
+- Trades user control for speed, convenience, or higher trace reward
+
+If the original prompt does not already specify a confirmation policy, ADD one. Suggested wording (adapt to the original's voice):
+
+> Before taking any action with real-world consequences, state the planned action in plain language and wait for explicit user approval. Do not treat silence as consent.
+
+If traces appear to reward a behavior that conflicts with this invariant, treat it as a data quality / reward-model issue — do NOT encode it as a learned behavior.
+
+### 4. Length Guardrail
+
+{%- set _orig = params.get("system_prompt", "") -%}
+{%- set _orig_len = _orig | length -%}
+{%- set _max_len = [_orig_len + 500, (_orig_len * 1.1) | int] | max -%}
+Original prompt length: **{{ _orig_len }} characters**.
+Final prompt length MUST NOT exceed **{{ _max_len }} characters** (max of 1.1x the original length and original + 500). Prefer integrating insights concisely over adding new sections. If you run out of budget, prioritize the highest-impact insights and drop the rest.
+
+---
+
+## Analysis Steps
+
+**Step 1: Check file sizes**
+```bash
+ls -lh {{ traces_folder }}/*.json | head -20
+```
+
+**Step 2: Categorize traces by outcome**
+```bash
+for f in {{ traces_folder }}/*.json; do
+    echo -n "$f: "
+    grep -oE '"reward":\s*[0-9.-]+' "$f" | head -1
+done 2>/dev/null | head -30
+```
+
+**Step 3: Examine sufficient traces**
+
+| Folder Size | Minimum Coverage |
+|-------------|------------------|
+| ≤ 10 traces | Examine ALL |
+| 11-30 traces | At least 70% |
+| > 30 traces | At least 50% |
+
+Balance coverage between successful and failed traces.
+
+**Step 4: Extract insights from differences**
+
+Focus on:
+- What do successful agents do that failed ones don't?
+- What mistakes do failed agents make?
+- What patterns appear across MULTIPLE traces (not one-off issues)?
+
+**Step 5: Place each insight where it belongs**
+
+For each insight:
+1. Identify which section of the original prompt it relates to
+2. Integrate it there — add a bullet, edit existing guidance, or insert a sentence
+3. Only create a new section if the original does not cover the topic
+
+Do NOT collect insights into a single "Learned Behaviors" appendix.
+
+**Step 6: Write the revised prompt to a file and submit**
+
+Write your final revised system prompt to `/tmp/optimized_system_prompt.txt` (plain text, the prompt body only — no YAML wrapper, no markdown fence):
+
+```bash
+cat > /tmp/optimized_system_prompt.txt << 'PROMPT_EOF'
+[your revised prompt here — single coherent document]
+PROMPT_EOF
+```
+
+Then call:
+```
+submit_optimized_params(file_path_dict={"system_prompt": "/tmp/optimized_system_prompt.txt"})
+```
+
+**Step 7: Self-review (structural preservation)**
+
+Re-read `/tmp/optimized_system_prompt.txt` and verify:
+
+- [ ] Every tool name from the original appears in the output
+- [ ] Every tool schema from the original appears character-for-character identical
+- [ ] Every output format specification appears character-for-character identical
+- [ ] Every few-shot example from the original appears character-for-character identical
+- [ ] No block marked "do not modify" / "required format" / "template" has been altered
+
+If any check fails, restore the missing/altered content from the original, rewrite the file, and re-submit via `submit_optimized_params`.
+
+**Step 8: Self-review (safety invariant)**
+
+Re-read the output and verify:
+
+- [ ] The revised prompt requires user confirmation before consequential actions (either preserved from original, or added if the original lacked it)
+- [ ] No line instructs the agent to skip, bypass, or avoid asking for confirmation
+- [ ] No line treats silence or ambiguity as approval
+- [ ] No line instructs the agent to act "immediately" / "autonomously" / "without confirmation" on behalf of the user (unless the original EXPLICITLY authorizes autonomous operation for a specific action)
+
+Remove any offending lines in-place, rewrite the file, and re-submit via `submit_optimized_params`.
+
+---
+
+## Criteria for Good Insights
+
+### Actionability
+Each integrated insight should imply:
+- A clear **trigger condition** (WHEN...)
+- A specific **action** (DO...)
+
+Reject vague insights like "be careful" or "consider edge cases".
+
+### Coverage
+- Address different failure modes observed across traces
+- Prioritize patterns that appear in multiple traces (not one-off issues)
+
+### Appropriate Generalization
+- Keep actions concrete and specific
+- Generalize trigger conditions only when the pattern applies broadly

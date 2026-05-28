@@ -12,6 +12,7 @@ import os
 import random
 import shutil
 import tempfile
+import time
 from typing import Optional
 
 from strands import Agent, tool
@@ -125,6 +126,9 @@ class BaseAgenticOptimizer(FormulaOptimizer):
         self._prompt_history: list[str] = []
         self._sampled_indices: list[int] = []
 
+        self.last_metrics: dict = {}
+        self.last_wall_clock_s: float = 0.0
+
     def _create_agent(self, system_prompt: str) -> Agent:
         """Create a strands Agent with shell tool, submit tool, and output guardrail."""
         if self.boto_config:
@@ -188,6 +192,26 @@ class BaseAgenticOptimizer(FormulaOptimizer):
     def _get_extra_tools(self) -> list:
         """Return additional tools for the agent. Override in subclasses."""
         return []
+
+    def _invoke_agent(self, agent: Agent, message: str):
+        """Invoke the agent and record wall-clock + Strands metrics on self."""
+        t0 = time.time()
+        response = agent(message)
+        self.last_wall_clock_s = time.time() - t0
+
+        m = response.metrics
+        usage = m.accumulated_usage
+        self.last_metrics = {
+            "cycle_count": m.cycle_count,
+            "input_tokens": usage.get("inputTokens", 0),
+            "output_tokens": usage.get("outputTokens", 0),
+            "total_tokens": usage.get("totalTokens", 0),
+            "cache_read_tokens": usage.get("cacheReadInputTokens", 0),
+            "cache_write_tokens": usage.get("cacheWriteInputTokens", 0),
+            "latency_ms": m.accumulated_metrics.get("latencyMs", 0),
+            "tool_calls": {k: v.call_count for k, v in m.tool_metrics.items()},
+        }
+        return response
 
     def _get_submitted_params(self) -> Optional[dict]:
         """Get the params submitted via the tool, then reset."""

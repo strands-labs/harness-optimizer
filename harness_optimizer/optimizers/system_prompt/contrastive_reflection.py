@@ -133,6 +133,6 @@ class ContrastiveReflectionOptimizer(BaseAgenticOptimizer):
         task_message = self._task_message_template.render(**template_vars)
 
         agent = self._create_agent(system_prompt)
-        agent(task_message)
+        self._invoke_agent(agent, task_message)
 
     # get_state() and load_state() inherited from BaseAgenticOptimizer
