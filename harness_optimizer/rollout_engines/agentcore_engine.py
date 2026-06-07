@@ -7,7 +7,7 @@ Formula parameters are included in the HTTP payload per invocation.
 import json
 import logging
 import uuid
-from typing import Iterator, Optional
+from typing import Callable, Iterator, Optional
 
 import boto3
 from botocore.config import Config as BotocoreConfig
@@ -16,6 +16,8 @@ from ..datamodels import Rollout
 from ..formulas import Formula
 from ..utils.parallel_rollout import expand_for_num_rollouts, run_parallel
 from .agent_rollout_engine import AgentRolloutEngine
+
+PayloadMapper = Callable[[dict], dict]
 
 logger = logging.getLogger(__name__)
 
@@ -108,6 +110,12 @@ class AgentCoreRolloutEngine(AgentRolloutEngine):
     The runtime must already be deployed. Formula parameters are synced
     via ensure_sync_params() and included in each invocation payload.
 
+    The engine builds a canonical ``{"data_sample": ..., "params": ...}``
+    payload per invocation. ``payload_mapper`` is an optional transform
+    applied to that dict before it goes on the wire — use it when the
+    deployed runtime expects a different shape (flat fields, renamed keys,
+    nested envelopes).
+
     Args:
         formula: The Formula being optimized.
         agent_arn: ARN of the deployed AgentCore agent runtime.
@@ -115,13 +123,7 @@ class AgentCoreRolloutEngine(AgentRolloutEngine):
         boto_config: BotocoreConfig or dict to merge with defaults.
         num_rollouts: Default number of rollouts per data sample.
         num_workers: Number of parallel workers for concurrent invocations.
-
-    Example:
-        engine = AgentCoreRolloutEngine(
-            formula=formula,
-            agent_arn="arn:aws:bedrock-agentcore:us-west-2:123:runtime/abc",
-            num_workers=4,
-        )
+        payload_mapper: Optional transform of the canonical payload.
     """
 
     def __init__(
@@ -132,6 +134,7 @@ class AgentCoreRolloutEngine(AgentRolloutEngine):
         boto_config=None,
         num_rollouts: int = 1,
         num_workers: int = 1,
+        payload_mapper: Optional[PayloadMapper] = None,
     ):
         super().__init__(formula, num_rollouts)
         self.num_workers = num_workers
@@ -141,6 +144,7 @@ class AgentCoreRolloutEngine(AgentRolloutEngine):
             region_name=region_name,
             boto_config=boto_config,
         )
+        self._payload_mapper = payload_mapper
 
         logger.info(f"Initialized AgentCoreRolloutEngine (num_workers={num_workers})")
 
@@ -157,10 +161,9 @@ class AgentCoreRolloutEngine(AgentRolloutEngine):
 
     def _invoke_runtime(self, data_sample: dict) -> Rollout:
         """Invoke the AgentCore runtime for a single data sample."""
-        payload = {
-            "data_sample": data_sample,
-            "params": self._synced_params,
-        }
+        payload = {"data_sample": data_sample, "params": self._synced_params}
+        if self._payload_mapper is not None:
+            payload = self._payload_mapper(payload)
 
         response_data = self._client.invoke(payload)
 
