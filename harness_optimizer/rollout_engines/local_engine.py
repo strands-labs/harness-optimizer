@@ -11,8 +11,8 @@ from typing import Callable, Iterator
 
 from ..datamodels import AgentCreator, AgentInvoker, Rollout, SupportedAgent
 from ..formulas import Formula
-from .agent_rollout_engine import AgentRolloutEngine
 from ..utils.parallel_rollout import expand_for_num_rollouts, run_parallel
+from .agent_rollout_engine import AgentRolloutEngine
 
 logger = logging.getLogger(__name__)
 

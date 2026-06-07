@@ -35,7 +35,7 @@ class ToolOutputGuardrail:
             if isinstance(item, dict) and "text" in item:
                 text = item["text"]
                 if len(text) > self.max_chars:
-                    preview = text[:self.max_chars]
+                    preview = text[: self.max_chars]
                     item["text"] = (
                         f"{preview}\n\n"
                         f"[TRUNCATED: Output exceeded {self.max_chars} characters. "

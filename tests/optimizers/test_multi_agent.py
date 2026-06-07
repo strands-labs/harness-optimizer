@@ -18,9 +18,13 @@ def test_multi_agent_writes_rollouts_and_cleans_up():
         rollout_analyzer_template=load_builtin_template("multi_agent/rollout_analyzer.jinja"),
         model_config={"model_id": "us.anthropic.claude-haiku-4-5-20251001-v1:0"},
     )
-    optimizer.add_rollouts([
-        Rollout(messages=[{"role": "user", "content": "hello"}], data_sample={"prompt": "test"}),
-    ])
+    optimizer.add_rollouts(
+        [
+            Rollout(
+                messages=[{"role": "user", "content": "hello"}], data_sample={"prompt": "test"}
+            ),
+        ]
+    )
     optimizer.add_rewards([Reward(reward=1.0)])
 
     # Sample and write traces to temp
@@ -45,6 +49,7 @@ def test_multi_agent_has_swarm_tool():
     )
 
     from strands_tools import swarm
+
     assert swarm in optimizer._get_extra_tools()
 
 

@@ -1,10 +1,10 @@
 [build-system]
-requires = ["setuptools>=45", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
 
 [project]
 name = "harness-optimizer"
-version = "0.1.0"
+dynamic = ["version"]
 description = "A framework for optimizing LLM agent context through Formulas"
 readme = "README.md"
 license = {text = "Apache-2.0"}
@@ -39,12 +39,37 @@ dev = [
     "mypy>=0.990",
 ]
 
-[tool.setuptools.packages.find]
-where = ["."]
-include = ["harness_optimizer*"]
+[tool.hatch.version]
+source = "vcs"
 
-[tool.setuptools.package-data]
-harness_optimizer = ["templates/**/*.jinja"]
+[tool.hatch.build.hooks.vcs]
+version-file = "harness_optimizer/_version.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["harness_optimizer"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "harness_optimizer",
+    "tests",
+    "README.md",
+    "LICENSE",
+    "NOTICE",
+]
+
+[tool.hatch.envs.default]
+features = ["dev"]
+
+[tool.hatch.envs.default.scripts]
+test = "pytest {args}"
+lint = [
+    "black --check harness_optimizer tests",
+    "isort --check-only harness_optimizer tests",
+]
+format = [
+    "black harness_optimizer tests",
+    "isort harness_optimizer tests",
+]
 
 [tool.black]
 line-length = 100

@@ -1,12 +1,12 @@
 """Unit tests for the strands agent adapter."""
 
-import pytest
 from unittest.mock import MagicMock
 
+import pytest
 from strands.hooks.events import BeforeInvocationEvent
 
-from harness_optimizer.formulas import SystemPromptFormula
 from harness_optimizer.adapters import StrandsAdapter, apply_formulas_on_strands_agent
+from harness_optimizer.formulas import SystemPromptFormula
 
 
 @pytest.fixture

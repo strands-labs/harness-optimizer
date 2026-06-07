@@ -9,16 +9,17 @@ Requires AWS credentials; skipped otherwise.
 
 import os
 import re
+
 import pytest
 from dotenv import load_dotenv
 from strands import Agent
 from strands.models import BedrockModel
 
+from harness_optimizer.adapters import StrandsAdapter
 from harness_optimizer.datamodels import Reward, Rollout
 from harness_optimizer.formulas import SystemPromptFormula
-from harness_optimizer.adapters import StrandsAdapter
-from harness_optimizer.rewards import RewardFunction
 from harness_optimizer.optimizers import FormulaOptimizer
+from harness_optimizer.rewards import RewardFunction
 
 load_dotenv()
 
@@ -27,6 +28,7 @@ has_aws_credentials = bool(os.environ.get("AWS_ACCESS_KEY_ID"))
 
 class ConcisenessReward(RewardFunction):
     """Returns reward 1.0 if the response exactly matches the expected answer."""
+
     def __call__(self, rollout: Rollout) -> Reward:
         response_text = rollout.metadata.get("response_text", "").strip()
         expected = rollout.data_sample.get("expected_answer", "").strip()
@@ -36,7 +38,7 @@ class ConcisenessReward(RewardFunction):
             metadata={
                 "response_text": response_text,
                 "expected_answer": expected,
-            }
+            },
         )
 
 
@@ -55,9 +57,7 @@ class LLMPromptOptimizer(FormulaOptimizer):
     def step(self):
         # Build analysis of rollouts for the LLM
         analysis = []
-        for i, (rollout, reward) in enumerate(
-            zip(self._rollouts, self._rewards)
-        ):
+        for i, (rollout, reward) in enumerate(zip(self._rollouts, self._rewards)):
             sample = rollout.data_sample
             analysis.append(
                 f"Task: {sample.get('prompt', '')}\n"
@@ -69,10 +69,10 @@ class LLMPromptOptimizer(FormulaOptimizer):
         current_prompt = self.formula.get_tunable_params().get("system_prompt", "")
         optimization_prompt = (
             f"You are optimizing a system prompt for an LLM agent.\n\n"
-            f"Current system prompt: \"{current_prompt}\"\n\n"
+            f'Current system prompt: "{current_prompt}"\n\n'
             f"Here are the agent's rollouts and their rewards:\n\n"
-            + "\n\n".join(analysis) +
-            f"\n\nAnalyze what patterns lead to high vs low rewards, "
+            + "\n\n".join(analysis)
+            + f"\n\nAnalyze what patterns lead to high vs low rewards, "
             f"and generate an improved system prompt.\n\n"
             f"Reply with ONLY the new system prompt, nothing else."
         )
@@ -124,7 +124,7 @@ class TestOptimizationWithModel:
                 rollout = Rollout(
                     data_sample=sample,
                     messages=list(agent.messages),
-                    metadata={"response_text": response_text}
+                    metadata={"response_text": response_text},
                 )
                 reward = reward_fn(rollout)
 

@@ -9,7 +9,6 @@ See: https://github.com/pytorch/pytorch/blob/main/torch/utils/data/dataset.py
 
 from typing import Generic, Iterable, Sequence, TypeVar
 
-
 _T_co = TypeVar("_T_co", covariant=True)
 
 
@@ -26,7 +25,9 @@ class Dataset(Generic[_T_co]):
         raise NotImplementedError("Subclasses of Dataset should implement __getitem__.")
 
     def __add__(self, other: "Dataset[_T_co]") -> "Dataset[_T_co]":
-        raise NotImplementedError("Use ChainDataset for IterableDatasets or Subset for map-style Datasets.")
+        raise NotImplementedError(
+            "Use ChainDataset for IterableDatasets or Subset for map-style Datasets."
+        )
 
 
 class IterableDataset(Dataset[_T_co], Iterable[_T_co]):

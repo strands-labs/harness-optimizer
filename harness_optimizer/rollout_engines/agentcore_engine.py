@@ -142,9 +142,7 @@ class AgentCoreRolloutEngine(AgentRolloutEngine):
             boto_config=boto_config,
         )
 
-        logger.info(
-            f"Initialized AgentCoreRolloutEngine (num_workers={num_workers})"
-        )
+        logger.info(f"Initialized AgentCoreRolloutEngine (num_workers={num_workers})")
 
     def ensure_sync_params(self) -> None:
         """Capture current formula params for the upcoming batch."""

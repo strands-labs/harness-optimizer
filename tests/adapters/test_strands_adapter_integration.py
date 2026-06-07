@@ -4,12 +4,13 @@ Requires AWS credentials; skipped otherwise.
 """
 
 import os
+
 import pytest
 from dotenv import load_dotenv
 from strands import Agent
 
-from harness_optimizer.formulas import SystemPromptFormula
 from harness_optimizer.adapters import StrandsAdapter
+from harness_optimizer.formulas import SystemPromptFormula
 
 load_dotenv()
 
@@ -23,6 +24,7 @@ class TestEndToEndWithModel:
     @pytest.fixture
     def model(self):
         from strands.models import BedrockModel
+
         return BedrockModel(
             model_id="us.anthropic.claude-haiku-4-5-20251001-v1:0",
             region_name="us-west-2",

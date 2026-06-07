@@ -1,7 +1,7 @@
 """Tests for the Formula base class."""
 
 import pytest
-from strands.hooks.events import BeforeInvocationEvent, AfterInvocationEvent
+from strands.hooks.events import AfterInvocationEvent, BeforeInvocationEvent
 
 from harness_optimizer.formulas import Formula
 
@@ -37,10 +37,13 @@ class TestFormulaInit:
         class MultiTiming(Formula):
             def __init__(self):
                 super().__init__("multi", [BeforeInvocationEvent, AfterInvocationEvent])
+
             def process(self, context, **kwargs):
                 return context
+
             def get_tunable_params(self):
                 return {}
+
             def update_params(self, params):
                 pass
 

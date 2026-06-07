@@ -1,6 +1,7 @@
 """Tests for the ContrastiveReflectionOptimizer."""
 
 import os
+
 import pytest
 from dotenv import load_dotenv
 from strands.models import BedrockModel
@@ -22,12 +23,18 @@ def test_writes_rollouts_and_cleans_up():
     optimizer = ContrastiveReflectionOptimizer(
         formula,
         system_prompt_template=load_builtin_template("contrastive_reflection/system_prompt.jinja"),
-        task_message_template=load_builtin_template("contrastive_reflection/task_message_system_prompt.jinja"),
+        task_message_template=load_builtin_template(
+            "contrastive_reflection/task_message_system_prompt.jinja"
+        ),
         model_config={"model_id": "us.anthropic.claude-haiku-4-5-20251001-v1:0"},
     )
-    optimizer.add_rollouts([
-        Rollout(data_sample={"prompt": "test"}, messages=[{"role": "user", "content": "hello"}]),
-    ])
+    optimizer.add_rollouts(
+        [
+            Rollout(
+                data_sample={"prompt": "test"}, messages=[{"role": "user", "content": "hello"}]
+            ),
+        ]
+    )
     optimizer.add_rewards([Reward(reward=1)])
 
     # Sample and write traces to temp
@@ -49,25 +56,37 @@ def test_contrastive_reflection_step():
     optimizer = ContrastiveReflectionOptimizer(
         formula,
         system_prompt_template=load_builtin_template("contrastive_reflection/system_prompt.jinja"),
-        task_message_template=load_builtin_template("contrastive_reflection/task_message_system_prompt.jinja"),
+        task_message_template=load_builtin_template(
+            "contrastive_reflection/task_message_system_prompt.jinja"
+        ),
         model_config={"model_id": "us.anthropic.claude-sonnet-4-20250514-v1:0"},
     )
 
     # Add simulated rollouts with contrasting rewards
-    optimizer.add_rollouts([
-        Rollout(
-            data_sample={"prompt": "What is 2+3?", "expected_answer": "5", "uuid": "uuid1"},
-            messages=[{"role": "user", "content": "What is 2+3?"}, {"role": "assistant", "content": "2 + 3 = 5"}]
-        ),
-        Rollout(
-            data_sample={"prompt": "What is 10-4?", "expected_answer": "6", "uuid": "uuid2"},
-            messages=[{"role": "user", "content": "What is 10-4?"}, {"role": "assistant", "content": "6"}]
-        ),
-    ])
-    optimizer.add_rewards([
-        Reward(reward=0.0, metadata={"reason": "response contains extra text"}),
-        Reward(reward=1.0, metadata={"reason": "exact match"}),
-    ])
+    optimizer.add_rollouts(
+        [
+            Rollout(
+                data_sample={"prompt": "What is 2+3?", "expected_answer": "5", "uuid": "uuid1"},
+                messages=[
+                    {"role": "user", "content": "What is 2+3?"},
+                    {"role": "assistant", "content": "2 + 3 = 5"},
+                ],
+            ),
+            Rollout(
+                data_sample={"prompt": "What is 10-4?", "expected_answer": "6", "uuid": "uuid2"},
+                messages=[
+                    {"role": "user", "content": "What is 10-4?"},
+                    {"role": "assistant", "content": "6"},
+                ],
+            ),
+        ]
+    )
+    optimizer.add_rewards(
+        [
+            Reward(reward=0.0, metadata={"reason": "response contains extra text"}),
+            Reward(reward=1.0, metadata={"reason": "exact match"}),
+        ]
+    )
 
     optimizer.step()
 

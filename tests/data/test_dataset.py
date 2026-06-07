@@ -1,6 +1,6 @@
 """Tests for Dataset classes."""
 
-from harness_optimizer.data import Dataset, IterableDataset, ChainDataset, Subset
+from harness_optimizer.data import ChainDataset, Dataset, IterableDataset, Subset
 
 
 class ListDataset(Dataset):

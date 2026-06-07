@@ -1,10 +1,10 @@
 """Tests for the Trainer — full loop with mock components."""
 
-from harness_optimizer.data import Dataset, DataLoader
+from harness_optimizer.data import DataLoader, Dataset
 from harness_optimizer.datamodels import Reward, Rollout
 from harness_optimizer.formulas import Formula
-from harness_optimizer.rewards import RewardFunction
 from harness_optimizer.optimizers import FormulaOptimizer
+from harness_optimizer.rewards import RewardFunction
 from harness_optimizer.rollout_engines import AgentRolloutEngine
 from harness_optimizer.trainer import Trainer
 
@@ -52,8 +52,10 @@ class MockOptimizer(FormulaOptimizer):
 class ListDataset(Dataset):
     def __init__(self, data):
         self.data = data
+
     def __getitem__(self, index):
         return self.data[index]
+
     def __len__(self):
         return len(self.data)
 

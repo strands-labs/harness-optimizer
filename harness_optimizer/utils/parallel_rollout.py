@@ -60,9 +60,7 @@ def run_parallel(
 
     results = [None] * len(tasks)
     with ThreadPoolExecutor(max_workers=num_workers) as executor:
-        future_to_idx = {
-            executor.submit(safe_invoke, fn, s): i for i, s in enumerate(tasks)
-        }
+        future_to_idx = {executor.submit(safe_invoke, fn, s): i for i, s in enumerate(tasks)}
         for future in as_completed(future_to_idx, timeout=3600):
             idx = future_to_idx[future]
             try:
@@ -70,9 +68,7 @@ def run_parallel(
             except Exception as e:
                 logger.error(f"Task {idx} failed: {e}")
                 results[idx] = Rollout(
-                    data_sample=tasks[idx],
-                    messages=[],
-                    metadata={"error": str(e)}
+                    data_sample=tasks[idx], messages=[], metadata={"error": str(e)}
                 )
     return results
 
@@ -91,8 +87,4 @@ def safe_invoke(fn: Callable[[dict], Rollout], data_sample: dict) -> Rollout:
         return fn(data_sample)
     except Exception as e:
         logger.error(f"Invocation failed for {data_sample}: {e}")
-        return Rollout(
-            data_sample=data_sample,
-            messages=[],
-            metadata={"error": str(e)}
-        )
+        return Rollout(data_sample=data_sample, messages=[], metadata={"error": str(e)})

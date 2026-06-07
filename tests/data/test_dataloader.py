@@ -1,6 +1,6 @@
 """Tests for DataLoader — verifying Dataset + Sampler integration."""
 
-from harness_optimizer.data import Dataset, DataLoader
+from harness_optimizer.data import DataLoader, Dataset
 
 
 class ListDataset(Dataset):
@@ -16,13 +16,15 @@ class ListDataset(Dataset):
 
 def test_dataloader_shuffle_with_dict_samples():
     """DataLoader batches, shuffles, and works with dict samples."""
-    ds = ListDataset([
-        {"prompt": "What is 2+3?", "answer": "5"},
-        {"prompt": "What is 10-4?", "answer": "6"},
-        {"prompt": "What is 7*8?", "answer": "56"},
-        {"prompt": "What is 100/4?", "answer": "25"},
-        {"prompt": "What is 15+27?", "answer": "42"},
-    ])
+    ds = ListDataset(
+        [
+            {"prompt": "What is 2+3?", "answer": "5"},
+            {"prompt": "What is 10-4?", "answer": "6"},
+            {"prompt": "What is 7*8?", "answer": "56"},
+            {"prompt": "What is 100/4?", "answer": "25"},
+            {"prompt": "What is 15+27?", "answer": "42"},
+        ]
+    )
     loader = DataLoader(ds, batch_size=2, shuffle=True)
     batches = list(loader)
     assert len(batches) == 3  # 2 + 2 + 1

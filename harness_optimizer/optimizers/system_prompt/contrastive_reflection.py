@@ -105,7 +105,9 @@ class ContrastiveReflectionOptimizer(BaseAgenticOptimizer):
                 self.formula.update_params(optimized_params)
                 self._prompt_history.append(optimized_params)
                 self._step_count += 1
-                summary = ", ".join(f"{k} ({len(str(v))} chars)" for k, v in optimized_params.items())
+                summary = ", ".join(
+                    f"{k} ({len(str(v))} chars)" for k, v in optimized_params.items()
+                )
                 logger.info(f"Step {self._step_count}: updated params: {summary}")
             else:
                 raise RuntimeError(

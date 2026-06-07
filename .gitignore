@@ -124,3 +124,6 @@ docs/.astro/
 # Docker
 Dockerfile
 .dockerignore
+
+# hatch-vcs generated
+harness_optimizer/_version.py

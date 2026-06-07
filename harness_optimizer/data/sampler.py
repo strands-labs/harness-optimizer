@@ -11,7 +11,6 @@ import itertools
 import random
 from typing import Generic, Iterable, Iterator, List, Optional, Sized, TypeVar, Union
 
-
 _T_co = TypeVar("_T_co", covariant=True)
 
 
@@ -130,9 +129,7 @@ class BatchSampler(Sampler[List[int]]):
                 f"batch_size should be a positive integer value, but got batch_size={batch_size}"
             )
         if not isinstance(drop_last, bool):
-            raise ValueError(
-                f"drop_last should be a boolean value, but got drop_last={drop_last}"
-            )
+            raise ValueError(f"drop_last should be a boolean value, but got drop_last={drop_last}")
         self.sampler = sampler
         self.batch_size = batch_size
         self.drop_last = drop_last

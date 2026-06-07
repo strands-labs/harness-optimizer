@@ -8,6 +8,7 @@ through rollout-based feedback.
 
 from abc import ABC, abstractmethod
 from typing import Any
+
 from strands.hooks import HookEvent
 
 
@@ -44,7 +45,9 @@ class Formula(ABC):
                 first-class, or strings for other frameworks.
         """
         if not trigger_timings:
-            raise ValueError("trigger_timings must not be empty — a Formula must have at least one trigger timing.")
+            raise ValueError(
+                "trigger_timings must not be empty — a Formula must have at least one trigger timing."
+            )
         self.name = name
         self.trigger_timings = trigger_timings
 

@@ -14,10 +14,10 @@ import shutil
 import tempfile
 from typing import Optional
 
+from botocore.config import Config as BotocoreConfig
 from strands import Agent, tool
 from strands.models import BedrockModel
 from strands_tools import shell
-from botocore.config import Config as BotocoreConfig
 
 from ...formulas import Formula
 from ...utils.guardrails import ToolOutputGuardrail
@@ -128,7 +128,11 @@ class BaseAgenticOptimizer(FormulaOptimizer):
     def _create_agent(self, system_prompt: str) -> Agent:
         """Create a strands Agent with shell tool, submit tool, and output guardrail."""
         if self.boto_config:
-            override = self.boto_config if isinstance(self.boto_config, BotocoreConfig) else BotocoreConfig(**self.boto_config)
+            override = (
+                self.boto_config
+                if isinstance(self.boto_config, BotocoreConfig)
+                else BotocoreConfig(**self.boto_config)
+            )
             boto_config = self._DEFAULT_BOTO_CONFIG.merge(override)
         else:
             boto_config = self._DEFAULT_BOTO_CONFIG
@@ -271,7 +275,11 @@ class BaseAgenticOptimizer(FormulaOptimizer):
                 "data": {
                     "messages": rollout.messages,
                     "reward": reward_value,
-                    "metrics": {"reward": reward_value, "metadata": reward_obj.metadata} if reward_obj else {},
+                    "metrics": (
+                        {"reward": reward_value, "metadata": reward_obj.metadata}
+                        if reward_obj
+                        else {}
+                    ),
                     "task": rollout.data_sample,
                 },
             }
@@ -362,4 +370,3 @@ class BaseAgenticOptimizer(FormulaOptimizer):
             self._prompt_history = list(state["prompt_history"])
         if "sampled_indices" in state:
             self._sampled_indices = list(state["sampled_indices"])
-

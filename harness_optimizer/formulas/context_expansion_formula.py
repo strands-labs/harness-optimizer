@@ -6,6 +6,7 @@ in the agent's message history.
 """
 
 import logging
+
 from strands.hooks.events import BeforeModelCallEvent
 
 from .formula import Formula
@@ -77,13 +78,13 @@ class ContextExpansionFormula(Formula):
                 if isinstance(new_content[i], dict) and new_content[i].get("type") == "text":
                     new_content[i] = {
                         **new_content[i],
-                        "text": f"{new_content[i].get('text', '')}\n\n{self.instruction}"
+                        "text": f"{new_content[i].get('text', '')}\n\n{self.instruction}",
                     }
                     break
                 elif isinstance(new_content[i], dict) and "text" in new_content[i]:
                     new_content[i] = {
                         **new_content[i],
-                        "text": f"{new_content[i].get('text', '')}\n\n{self.instruction}"
+                        "text": f"{new_content[i].get('text', '')}\n\n{self.instruction}",
                     }
                     break
         else:
@@ -94,7 +95,7 @@ class ContextExpansionFormula(Formula):
 
         modified_messages[user_message_idx] = {
             **modified_messages[user_message_idx],
-            "content": new_content
+            "content": new_content,
         }
 
         return {"messages": modified_messages}
@@ -107,4 +108,3 @@ class ContextExpansionFormula(Formula):
         """Update parameters from params dict."""
         if "instruction" in params:
             self.instruction = params["instruction"]
-

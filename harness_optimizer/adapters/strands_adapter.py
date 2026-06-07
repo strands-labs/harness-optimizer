@@ -112,12 +112,11 @@ class StrandsAdapter(AgentAdapter):
                         if f.can_process(context):
                             updated = f.process(context)
                             self.update_context(event.agent, updated)
+
                     return callback
 
                 agent.add_hook(_make_callback(formula), event_type)
-                logger.info(
-                    f"Registered formula '{formula.name}' on {event_type.__name__}"
-                )
+                logger.info(f"Registered formula '{formula.name}' on {event_type.__name__}")
 
         return agent
 

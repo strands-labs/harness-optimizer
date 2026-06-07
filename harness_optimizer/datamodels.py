@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field
 from typing import Protocol, Union
+
 from strands import Agent
 
 SupportedAgent = Union["Agent"]
@@ -22,12 +23,10 @@ class Rollout:
 class AgentCreator(Protocol):
     """Protocol for callables that create fresh agent instances."""
 
-    def __call__(self) -> SupportedAgent:
-        ...
+    def __call__(self) -> SupportedAgent: ...
 
 
 class AgentInvoker(Protocol):
     """Protocol for callables that invoke agents and return rollouts."""
 
-    def __call__(self, agent: SupportedAgent, data_sample: dict) -> Rollout:
-        ...
+    def __call__(self, agent: SupportedAgent, data_sample: dict) -> Rollout: ...

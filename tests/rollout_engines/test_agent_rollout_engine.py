@@ -11,10 +11,13 @@ class MockFormula(Formula):
     def __init__(self, prompt="initial"):
         super().__init__("mock", ["before_invocation"])
         self.prompt = prompt
+
     def process(self, context, **kwargs):
         return {"system_prompt": self.prompt}
+
     def get_tunable_params(self):
         return {"system_prompt": self.prompt}
+
     def update_params(self, params):
         self.prompt = params.get("system_prompt", self.prompt)
 

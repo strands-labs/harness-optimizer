@@ -8,6 +8,7 @@ from harness_optimizer.optimizers import FormulaOptimizer
 
 class PickBestOptimizer(FormulaOptimizer):
     """Picks the prompt hint from the highest-reward rollout."""
+
     def step(self):
         best_idx = max(range(len(self._rewards)), key=lambda i: self._rewards[i]["reward_value"])
         hint = self._rollouts[best_idx].get("data_sample", {}).get("hint", "")
@@ -39,10 +40,12 @@ def test_optimizer_accumulate_step_and_checkpoint():
     # Accumulate, step, verify formula updated (rollout contains data_sample)
     formula = SystemPromptFormula(system_prompt="original")
     optimizer = PickBestOptimizer(formula)
-    optimizer.add_rollouts([
-        {"messages": ["t1"], "data_sample": {"hint": "be brief"}},
-        {"messages": ["t2"], "data_sample": {"hint": "use examples"}},
-    ])
+    optimizer.add_rollouts(
+        [
+            {"messages": ["t1"], "data_sample": {"hint": "be brief"}},
+            {"messages": ["t2"], "data_sample": {"hint": "use examples"}},
+        ]
+    )
     optimizer.add_rewards(
         [{"reward_value": 0.2}, {"reward_value": 0.8}],
     )

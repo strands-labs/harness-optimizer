@@ -50,9 +50,7 @@ class SystemPromptFormula(Formula):
             logger.warning("No system prompt set, skipping processing")
             return context
 
-        logger.info(
-            f"Updating system prompt: {self.system_prompt[:50]}..."
-        )
+        logger.info(f"Updating system prompt: {self.system_prompt[:50]}...")
         return {"system_prompt": self.system_prompt}
 
     def get_tunable_params(self) -> dict:
