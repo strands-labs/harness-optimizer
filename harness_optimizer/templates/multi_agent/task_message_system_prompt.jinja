@@ -1,0 +1,72 @@
+Analyze the trajectories and generate an optimized system prompt using multi-agent collaboration.
+
+## Inputs
+
+**Trajectory Folder**: {{ traces_folder }}
+
+**Current System Prompt to Optimize**:
+<current_system_prompt>
+{{ params.get("system_prompt", "") }}
+</current_system_prompt>
+
+---
+
+## Analysis Steps
+
+**Step 1: Explore and categorize**
+```bash
+ls -lh {{ traces_folder }}/*.json | head -20
+for f in {{ traces_folder }}/*.json; do
+    echo -n "$f: "
+    grep -oE '"reward":\s*[0-9.-]+' "$f" | head -1
+done 2>/dev/null | head -30
+```
+
+**Step 2: Deep analysis via sub-agents**
+
+Use the `swarm` tool to create rollout analyzer sub-agents for failed traces. Each sub-agent should:
+- Perform turn-level analysis to find the critical decision point
+- Identify the cognitive gap (WHY the agent made the wrong decision)
+- Suggest what the agent should have done instead
+
+**Step 3: Pattern synthesis**
+
+After analyzing multiple rollouts, identify:
+- Common failure patterns across traces
+- Cognitive gaps that appear repeatedly
+- What successful traces do differently
+
+**Step 4: Generate optimized prompt and submit**
+
+Write the complete optimized system prompt (original + learned behaviors) to a file:
+```bash
+cat > /tmp/optimized_system_prompt.txt << 'PROMPT_EOF'
+[ENTIRE ORIGINAL PROMPT - UNCHANGED]
+
+---
+
+## Learned Behaviors
+
+[Your insights here - WHEN/DO format]
+PROMPT_EOF
+```
+
+Then call `submit_optimized_params(file_path_dict={"system_prompt": "/tmp/optimized_system_prompt.txt"})`.
+
+---
+
+## Criteria for Good Insights
+
+Each insight should have:
+- Clear **trigger condition** (WHEN...)
+- Specific **action** (DO...)
+
+Focus on metacognitive triggers over prescriptive rules:
+- BAD: "Always check the date"
+- GOOD: "WHEN you encounter temporal references, DO query the environment for the current date before proceeding"
+
+Prioritize patterns that appear in **multiple** traces over one-off issues.
+
+---
+
+**Remember**: The original system prompt contains important instructions. Preserving it completely is essential.

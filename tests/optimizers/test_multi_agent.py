@@ -2,10 +2,10 @@
 
 import os
 
-from context_alchemy.datamodels import Reward, Rollout
-from context_alchemy.formulas import SystemPromptFormula
-from context_alchemy.optimizers import MultiAgentOptimizer
-from context_alchemy.utils import load_builtin_template
+from harness_optimizer.datamodels import Reward, Rollout
+from harness_optimizer.formulas import SystemPromptFormula
+from harness_optimizer.optimizers import MultiAgentOptimizer
+from harness_optimizer.utils import load_builtin_template
 
 
 def test_multi_agent_writes_rollouts_and_cleans_up():
