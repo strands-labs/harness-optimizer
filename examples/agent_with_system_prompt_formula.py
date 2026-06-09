@@ -7,7 +7,7 @@ This example demonstrates:
 4. Updating formula parameters (simulating what an optimizer would do)
 
 Requirements:
-    pip install harness-optimizer
+    pip install strands-harness-optimizer
     AWS credentials configured for Bedrock access
 """
 

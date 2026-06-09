@@ -17,7 +17,7 @@ Harness Optimizer provides a framework for defining, attaching, and optimizing c
 ## Installation
 
 ```bash
-pip install harness-optimizer
+pip install strands-harness-optimizer
 ```
 
 ## Quick Example

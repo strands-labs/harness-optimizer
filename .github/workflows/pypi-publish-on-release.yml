@@ -66,7 +66,7 @@ jobs:
 
     environment:
       name: pypi
-      url: https://pypi.org/p/harness-optimizer
+      url: https://pypi.org/p/strands-harness-optimizer
     permissions:
       id-token: write
 

@@ -8,7 +8,7 @@ Demonstrates the full end-to-end flow using the Trainer class:
 5. Evaluate on a held-out test set
 
 Requirements:
-    pip install harness-optimizer
+    pip install strands-harness-optimizer
     AWS credentials configured for Bedrock access
 """
 

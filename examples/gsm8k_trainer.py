@@ -11,7 +11,7 @@ The Trainer handles:
 - Calling optimizer.step() and zero() per epoch
 
 Requirements:
-    pip install harness-optimizer datasets
+    pip install strands-harness-optimizer datasets
     AWS credentials configured for Bedrock access
 """
 

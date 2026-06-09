@@ -9,7 +9,7 @@ Demonstrates the full optimization loop:
 6. System prompt is updated with learned insights
 
 Requirements:
-    pip install harness-optimizer datasets
+    pip install strands-harness-optimizer datasets
     AWS credentials configured for Bedrock access
 """
 
