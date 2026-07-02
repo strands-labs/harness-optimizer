@@ -51,7 +51,11 @@ TRIGGER_TIMING_MAP = {
 class StrandsAdapter(AgentAdapter):
     """Adapter that bridges Formulas to strands-agents via hooks."""
 
+    # Context keys written back by plain ``setattr`` on the agent.
     tunable_params: set[str] = {"system_prompt", "messages"}
+
+    # Name the AgentSkills plugin registers itself under in strands.
+    _SKILLS_PLUGIN_NAME = "agent_skills"
 
     def extract_context(self, agent: Agent) -> dict:
         """Extract context from a strands Agent.
@@ -60,23 +64,61 @@ class StrandsAdapter(AgentAdapter):
             agent: The strands Agent instance.
 
         Returns:
-            Dict with "system_prompt" and "messages" keys.
+            Dict with "system_prompt" and "messages" keys, plus "skills"
+            (the AgentSkills plugin's available skills) when the plugin is
+            attached to the agent.
         """
-        return {
+        context = {
             "system_prompt": agent.system_prompt,
             "messages": list(agent.messages) if hasattr(agent, "messages") else [],
         }
+        skills_plugin = self._get_skills_plugin(agent)
+        if skills_plugin is not None:
+            context["skills"] = skills_plugin.get_available_skills()
+        return context
 
     def update_context(self, agent: Agent, context: dict) -> None:
         """Apply updated context back to a strands Agent.
 
+        ``system_prompt``/``messages`` are set directly on the agent. ``skills``
+        is pushed into the AgentSkills plugin via ``set_available_skills()`` so
+        a Formula can drive skill definitions without touching plugin internals
+        or relying on a shared Skill reference.
+
         Args:
             agent: The strands Agent instance.
-            context: Dict with keys to update (e.g., "system_prompt", "messages").
+            context: Dict with keys to update (e.g., "system_prompt",
+                "messages", "skills").
         """
         for key in self.tunable_params:
             if key in context:
                 setattr(agent, key, context[key])
+
+        if "skills" in context:
+            skills_plugin = self._get_skills_plugin(agent)
+            if skills_plugin is None:
+                logger.warning(
+                    "Formula produced 'skills' but no AgentSkills plugin is "
+                    "attached to the agent; skipping skills update."
+                )
+            else:
+                skills_plugin.set_available_skills(context["skills"])
+
+    def _get_skills_plugin(self, agent: Agent):
+        """Return the agent's AgentSkills plugin, or None if not attached.
+
+        Located by plugin name (``AgentSkills.name == "agent_skills"``) via the
+        agent's plugin registry. Duck-typed on ``set_available_skills`` so the
+        adapter does not hard-depend on the AgentSkills class being importable.
+        """
+        registry = getattr(agent, "_plugin_registry", None)
+        plugins = getattr(registry, "_plugins", None)
+        if not plugins:
+            return None
+        plugin = plugins.get(self._SKILLS_PLUGIN_NAME)
+        if plugin is not None and hasattr(plugin, "set_available_skills"):
+            return plugin
+        return None
 
     def apply_to_agent(self, formulas: list[Formula], agent: Agent) -> Agent:
         """Register formulas as hook callbacks on a strands agent.
