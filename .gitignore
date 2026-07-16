@@ -127,3 +127,6 @@ Dockerfile
 
 # hatch-vcs generated
 strands_harness_optimizer/_version.py
+
+# Example output (optimized skills written by examples/skill_optimizer.py)
+optimized_skills/
