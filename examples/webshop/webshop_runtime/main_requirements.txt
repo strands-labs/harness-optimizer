@@ -1,0 +1,24 @@
+# Agent-side deps (VENV_MAIN, Python 3.12): the Strands agent + AgentCore runtime.
+# The WebShop gym and its heavy ML stack live in VENV_AUX (see webshop_requirements.txt).
+requests
+httpx
+pandas
+numpy
+pyyaml
+# NOTE: strands_harness_optimizer is installed from THIS repo (copied into the image),
+# not PyPI — so the runtime tracks the current working code, not the last release.
+# See the Dockerfiles' "install strands_harness_optimizer from this repo" step.
+# 1.33.0: strands-harness-optimizer needs BeforeModelCallEvent (newer strands API);
+# older releases lack it and the runtime fails to import.
+strands-agents==1.33.0
+strands-agents-tools
+strands-agents-builder
+opentelemetry-api
+opentelemetry-sdk
+aws-opentelemetry-distro
+boto3==1.40.67
+openai
+bedrock-agentcore
+dotenv
+hydra-core
+tiktoken==0.11
