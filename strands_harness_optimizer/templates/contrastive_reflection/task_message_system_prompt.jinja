@@ -1,21 +1,23 @@
-Analyze the trajectories and generate an optimized system prompt.
+Analyze the trajectories and generate optimized values for the parameters below.
 
 ## Inputs
 
 **Trajectory Folder**: {{ traces_folder }}
 
-**Current System Prompt to Optimize**:
-<current_system_prompt>
-{{ params.get("system_prompt", "") }}
-</current_system_prompt>
+**Parameters to Optimize** ({{ params | length }} total):
+{% for name, value in params.items() %}
+<parameter name="{{ name }}">
+{{ value }}
+</parameter>
+{% endfor %}
 
 ---
 
 ## CRITICAL: Output Requirements
 
-### 1. Preserve Original Prompt COMPLETELY
+### 1. Preserve Each Original Value COMPLETELY
 
-Your output MUST include the **ENTIRE original system prompt above, unchanged**. Do NOT:
+For every parameter, your output MUST include the **ENTIRE original value above, unchanged**. Do NOT:
 - Truncate any part of it
 - Modify existing content
 - Reorganize sections
@@ -23,10 +25,10 @@ Your output MUST include the **ENTIRE original system prompt above, unchanged**.
 
 ### 2. Append New Content at the END
 
-After the original prompt, append a new section with your insights:
+After each original value, append a new section with your insights:
 
 ```
-[ENTIRE ORIGINAL PROMPT - UNCHANGED]
+[ENTIRE ORIGINAL VALUE - UNCHANGED]
 
 ---
 
@@ -37,13 +39,18 @@ After the original prompt, append a new section with your insights:
 
 ### 3. Dynamic Budget for New Content
 
-The original system prompt is approximately **{{ params.get("system_prompt", "") | length }} characters**. Adjust your new content length accordingly:
+Size your new content to the original value's length (per parameter):
 
 | Original Size | New Content Budget |
 |---------------------|-------------------|
 | < 5,000 chars | 3,000 - 5,000 chars of new insights |
 | 5,000 - 15,000 chars | 2,000 - 4,000 chars of new insights |
 | > 15,000 chars | 1,000 - 2,000 chars of new insights |
+
+Current sizes:
+{% for name, value in params.items() %}
+- **{{ name }}**: approximately {{ value | length }} characters
+{% endfor %}
 
 Focus on **high-value insights** when budget is limited.
 
@@ -81,17 +88,26 @@ Focus on:
 - What mistakes do failed agents make?
 - What patterns appear across MULTIPLE traces (not one-off issues)?
 
-**Step 5: Generate optimized system prompt and submit**
+**Step 5: Generate optimized values and submit**
 
-Write the complete optimized system prompt (original + new insights) to a file, then submit it:
+Write the complete optimized value (original + new insights) for each parameter to
+its own file, then submit them **under their original parameter names**:
 ```bash
-# Write the optimized prompt to a file
-cat > /tmp/optimized_system_prompt.txt << 'PROMPT_EOF'
-[your optimized prompt here]
-PROMPT_EOF
+{% for name in params %}
+cat > /tmp/optimized_{{ name }}.txt << 'PARAM_EOF'
+[your optimized {{ name }} here]
+PARAM_EOF
+{% endfor %}
 ```
 
-Then call `submit_optimized_params(file_path_dict={"system_prompt": "/tmp/optimized_system_prompt.txt"})` to submit.
+Then call:
+```
+submit_optimized_params(file_path_dict={
+{% for name in params %}    "{{ name }}": "/tmp/optimized_{{ name }}.txt",
+{% endfor %}})
+```
+
+Submit **every** parameter listed above, using its exact original name as the key.
 
 ---
 
@@ -114,4 +130,5 @@ Reject vague insights like "be careful" or "consider edge cases".
 
 ---
 
-**Remember**: The original system prompt contains important examples and instructions. Preserving it completely is essential for good performance.
+**Remember**: Each original value contains important examples and instructions.
+Preserving it completely is essential for good performance.
