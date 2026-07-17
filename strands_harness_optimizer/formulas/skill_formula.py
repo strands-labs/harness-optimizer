@@ -82,9 +82,7 @@ class SkillFormula(Formula):
             ) from e
 
         if not (tune_description or tune_instructions):
-            raise ValueError(
-                "SkillFormula must tune at least one of description/instructions."
-            )
+            raise ValueError("SkillFormula must tune at least one of description/instructions.")
 
         super().__init__(f"skill_formula:{skill.name}", [BeforeInvocationEvent])
         self.skill = skill
@@ -112,9 +110,15 @@ class SkillFormula(Formula):
         """Update the owned skill's text from a params dict."""
         if self.tune_description and "description" in params:
             self.skill.description = params["description"]
-            logger.info("Updated skill '%s' description (%d chars)",
-                        self.skill.name, len(params["description"]))
+            logger.info(
+                "Updated skill '%s' description (%d chars)",
+                self.skill.name,
+                len(params["description"]),
+            )
         if self.tune_instructions and "instructions" in params:
             self.skill.instructions = params["instructions"]
-            logger.info("Updated skill '%s' instructions (%d chars)",
-                        self.skill.name, len(params["instructions"]))
+            logger.info(
+                "Updated skill '%s' instructions (%d chars)",
+                self.skill.name,
+                len(params["instructions"]),
+            )

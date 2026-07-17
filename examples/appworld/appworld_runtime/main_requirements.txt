@@ -1,0 +1,71 @@
+# Core functionality
+# pydantic>=1.10.0,<3.0.0
+# pyyaml>=6.0,<7.0
+# click>=8.0.0,<9.0
+# rich>=12.0.0,<14.0
+# loguru>=0.6.0,<1.0
+
+# # Performance and monitoring
+# psutil>=5.9.0,<6.0
+
+# # Optional: LLM integrations (comment out if not needed)
+# # openai>=1.0.0,<2.0.0
+# # anthropic>=0.3.0,<1.0.0
+
+# # Data handling
+# typing-extensions>=4.0.0; python_version<"3.10"
+
+
+# # Include core requirements
+# -r requirements.txt
+
+# # Testing
+# pytest>=7.0.0,<8.0.0
+# pytest-cov>=4.0.0,<5.0.0
+# pytest-mock>=3.10.0,<4.0.0
+# pytest-asyncio>=0.21.0,<1.0.0
+
+# # Code quality
+# black>=22.0.0,<24.0.0
+# flake8>=5.0.0,<7.0.0
+# mypy>=0.990,<2.0.0
+# isort>=5.10.0,<6.0.0
+# pre-commit>=2.20.0,<4.0.0
+
+# # Documentation
+# sphinx>=5.0.0,<8.0.0
+# sphinx-rtd-theme>=1.0.0,<3.0.0
+# myst-parser>=0.18.0,<3.0.0
+
+# # Development tools
+# ipython>=8.0.0,<9.0.0
+# jupyter>=1.0.0,<2.0.0
+# notebook>=6.4.0,<8.0.0
+
+# # Build tools
+# build>=0.8.0,<1.0.0
+# twine>=4.0.0,<5.0.0
+
+requests
+pandas
+numpy
+pyyaml
+sphinx
+# NOTE: strands_harness_optimizer is installed from THIS repo (copied into the image),
+# not PyPI — so the runtime tracks the current working code, not the last release.
+# See the Dockerfiles' "install strands_harness_optimizer from this repo" step.
+# 1.33.0: strands-harness-optimizer needs BeforeModelCallEvent (newer strands API);
+# 1.6.0 lacks it and the runtime fails to import.
+strands-agents==1.33.0
+strands-agents-tools
+strands-agents-builder
+opentelemetry-api
+opentelemetry-sdk
+aws-opentelemetry-distro
+boto3==1.40.67
+huggingface-hub
+openai
+bedrock-agentcore
+dotenv
+hydra-core
+tiktoken==0.11
