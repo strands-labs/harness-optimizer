@@ -1,0 +1,110 @@
+# Public, no internal dependencies: Python 3.12 base (arm64 — what AgentCore runs); uv from PyPI; the WebShop source
+# + data from the public princeton-nlp/webshop repo (was: private ECR base + custom 20k
+# data). Dual venv — VENV_AUX (Python 3.9) runs the WebShop gym server (its pinned ML
+# stack: pydantic v1, numpy<2, Flask 2.1, pyserini/Lucene), VENV_MAIN (3.12) runs strands
+# + the AgentCore runtime. openjdk is required by pyserini's Lucene search backend.
+FROM --platform=linux/arm64 python:3.12-slim
+
+# Avoid interactive prompts and speed up installs
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+# Paths for the two virtualenvs
+ENV VENV_MAIN=/opt/venv_main \
+    VENV_AUX=/opt/venv_aux
+
+# Base tools + Java (pyserini/Lucene) + git (clone WebShop + git-lfs data if any).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
+    build-essential \
+    unzip \
+    git \
+    openjdk-17-jdk-headless \
+ && rm -rf /var/lib/apt/lists/*
+
+ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk-arm64
+
+# --- Install uv (fast Python + env manager) from PyPI ---
+RUN pip install --no-cache-dir uv
+
+# --- Install Python 3.12 (agent) and 3.9 (WebShop gym) via uv ---
+RUN uv python install 3.12 3.9
+
+# --- Create the two virtualenvs ---
+RUN uv venv "$VENV_MAIN" --python 3.12 && \
+    uv venv "$VENV_AUX" --python 3.9
+
+WORKDIR /app
+
+# Copy dependency files first (better layer caching).
+COPY examples/webshop/webshop_runtime/main_requirements.txt \
+     examples/webshop/webshop_runtime/webshop_requirements.txt ./
+
+# Install into each env. The WebShop gym stack (pinned, pydantic v1) goes in AUX;
+# spaCy/blis need to be installed before the rest to get compatible wheels.
+RUN uv pip install --python "$VENV_MAIN/bin/python" --no-cache -r main_requirements.txt
+RUN uv pip install --python "$VENV_AUX/bin/python" --no-cache "blis==0.7.11" "spacy==3.5.4" && \
+    uv pip install --python "$VENV_AUX/bin/python" --no-cache -r webshop_requirements.txt && \
+    uv pip install --python "$VENV_AUX/bin/python" --no-cache \
+      https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.5.0/en_core_web_sm-3.5.0-py3-none-any.whl
+
+# --- Fetch the WebShop source from the PUBLIC GitHub repo (pinned commit) ---
+RUN git clone --quiet https://github.com/princeton-nlp/webshop.git ./webshop && \
+    git -C ./webshop checkout --quiet master
+ENV WEBSHOP_PATH=/app/webshop
+
+# --- Download the small (1000-product) WebShop dataset from the public Google Drive
+#     mirror via gdown (the same ids the upstream setup.sh uses for `-d small`). ---
+WORKDIR /app/webshop/data
+RUN "$VENV_AUX/bin/gdown" "https://drive.google.com/uc?id=1EgHdxQ_YxqIQlvvq5iKlCrkEKR6-j0Ib" && \
+    "$VENV_AUX/bin/gdown" "https://drive.google.com/uc?id=1IduG0xl544V_A_jv3tHXC0kyFi7PnyBu" && \
+    "$VENV_AUX/bin/gdown" "https://drive.google.com/uc?id=14Kb5SPBk_jfdLZ_CDBNitW98QLDlKR5O"
+
+# --- Point WebShop's engine at the 1000-product files (defaults are the full set) ---
+RUN sed -i \
+      -e "s#^DEFAULT_ATTR_PATH = .*#DEFAULT_ATTR_PATH = join(BASE_DIR, '../data/items_ins_v2_1000.json')#" \
+      -e "s#^DEFAULT_FILE_PATH = .*#DEFAULT_FILE_PATH = join(BASE_DIR, '../data/items_shuffle_1000.json')#" \
+      /app/webshop/web_agent_site/utils.py
+
+# --- Build the Lucene search index for the 1000-product set (indexes_1k) ---
+COPY examples/webshop/webshop_runtime/build_index.py /app/webshop/search_engine/build_index.py
+WORKDIR /app/webshop/search_engine
+RUN "$VENV_AUX/bin/python" build_index.py /app/webshop/data/items_shuffle_1000.json ./resources_1k && \
+    "$VENV_AUX/bin/python" -m pyserini.index.lucene \
+      --collection JsonCollection \
+      --input resources_1k \
+      --index indexes_1k \
+      --generator DefaultLuceneDocumentGenerator \
+      --threads 1 \
+      --storePositions --storeDocvectors --storeRaw
+
+WORKDIR /app
+
+# Install strands_harness_optimizer from THIS repo (not PyPI) so the runtime tracks the
+# current working code. Copy only what the wheel needs. Its version comes from git tags
+# via hatch-vcs; .git isn't in the build context, so pin the version explicitly.
+COPY pyproject.toml README.md ./harness_pkg/
+COPY strands_harness_optimizer ./harness_pkg/strands_harness_optimizer
+RUN SETUPTOOLS_SCM_PRETEND_VERSION=0.0.2 \
+    uv pip install --python "$VENV_MAIN/bin/python" --no-cache ./harness_pkg
+
+# Copy runtime code (entrypoint, local helpers, dataset package, gym server, prompts).
+COPY examples/webshop/webshop_runtime/_local.py ./_local.py
+COPY examples/webshop/webshop_runtime/app_simple.py ./app_simple.py
+COPY examples/webshop/webshop_runtime/dataset ./dataset
+COPY examples/webshop/webshop_runtime/prompts ./prompts
+
+EXPOSE 8080
+
+ENV DOCKER_CONTAINER=1
+ENV WEBSHOP_EXECUTE_ENV=/opt/venv_aux
+ENV WEBSHOP_FLASK_URL=http://localhost:3000
+ENV WEBSHOP_NUM_PRODUCTS=1000
+ENV WEBSHOP_DATA_FILE=/app/webshop/data/items_shuffle_1000.json
+# No SYSTEM_PROMPT_YAML_PATH needed - prompt comes from the invocation payload.
+
+COPY examples/webshop/webshop_runtime/app.py ./app.py
+
+CMD uv run --python "$VENV_MAIN/bin/python" opentelemetry-instrument python -m app

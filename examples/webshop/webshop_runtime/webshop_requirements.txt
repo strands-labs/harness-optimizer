@@ -1,0 +1,26 @@
+# WebShop gym deps (VENV_AUX, Python 3.9): the WebAgentTextEnv + its search stack.
+# These pin the WebShop dependency set (pinned to what the upstream repo needs), which
+# conflicts with the agent side (pydantic v1, numpy<2, Flask 2.1) — hence the dual venv.
+# Mirrors princeton-nlp/webshop's requirements_arm.txt.
+beautifulsoup4==4.11.1
+cleantext==1.1.4
+env==0.1.0
+Flask==2.1.2
+werkzeug<2.1
+gdown
+gym==0.24.0
+numpy<2
+pandas==1.4.2
+pyserini==0.17.0
+PyYAML==6.0.1
+rank_bm25==0.2.2
+requests==2.27.1
+rich==12.4.4
+scikit_learn==1.1.1
+thefuzz==0.19.0
+torch==1.11.0
+tqdm==4.64.0
+train==0.0.5
+transformers==4.23.1
+pydantic==1.10.26
+faiss-cpu
