@@ -21,6 +21,6 @@ thefuzz==0.19.0
 torch==1.11.0
 tqdm==4.64.0
 train==0.0.5
-transformers==4.23.1
+transformers==5.5.0
 pydantic==1.10.26
 faiss-cpu
