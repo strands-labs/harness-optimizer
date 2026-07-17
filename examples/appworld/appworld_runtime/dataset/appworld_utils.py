@@ -21,7 +21,7 @@ def get_free_port(start_port=6000, max_port=65535):
     for port in range(start_port, max_port + 1):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             try:
-                s.bind(("", port))
+                s.bind(("127.0.0.1", port))
                 s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
                 return port
             except OSError:
