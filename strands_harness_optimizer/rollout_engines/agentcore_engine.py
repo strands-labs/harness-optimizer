@@ -247,9 +247,7 @@ class AgentCoreHTTPClient:
         if isinstance(data, str):
             data = json.loads(data)
         if not isinstance(data, dict):
-            raise ValueError(
-                f"Runtime response was not a JSON object (got {type(data).__name__})"
-            )
+            raise ValueError(f"Runtime response was not a JSON object (got {type(data).__name__})")
         data["session_id"] = session_id
         return data
 
@@ -326,7 +324,9 @@ class AgentCoreHTTPRolloutEngine(AgentRolloutEngine):
             data_sample=data_sample,
             messages=response_data.get("messages", []),
             metadata={
-                "response_text": str(response_data.get("response", response_data.get("result", ""))),
+                "response_text": str(
+                    response_data.get("response", response_data.get("result", ""))
+                ),
                 "session_id": response_data.get("session_id", ""),
                 "eval_result": response_data.get("eval_result", {}),
             },
