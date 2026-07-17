@@ -1,0 +1,155 @@
+# Public, no internal dependencies: Debian 12 (bookworm) + Python 3.12 base; uv from
+# PyPI; the appworld source from public GitHub (was: private ECR base + S3 mirror).
+# Dual venv — VENV_AUX runs the appworld 0.1.3 env server (pydantic v1), VENV_MAIN runs
+# strands + the appworld 0.2.x client (pydantic v2). arm64 is what AgentCore runs.
+FROM --platform=linux/arm64 python:3.12-slim
+
+# Avoid interactive prompts and speed up installs
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+# Paths for the two virtualenvs
+ENV VENV_MAIN=/opt/venv_main \
+    VENV_AUX=/opt/venv_aux
+
+# Optional: system deps for building wheels
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+ && rm -rf /var/lib/apt/lists/*
+
+ARG TARGETARCH
+
+RUN apt-get update && apt-get install -y curl
+
+# 1. Base tools (software-properties-common omitted — no PPA is added, and it
+#    isn't in python:3.12-slim's default apt sources).
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    curl \
+    build-essential \
+    unzip \
+ && rm -rf /var/lib/apt/lists/*
+
+# Install system deps if you need them (optional)
+# RUN apt-get update && apt-get install -y --no-install-recommends \
+#     build-essential \
+#  && rm -rf /var/lib/apt/lists/*
+
+# RUN apt-get update && apt-get install -y --no-install-recommends \
+#     curl \
+#     ca-certificates \
+#     build-essential \
+#  && rm -rf /var/lib/apt/lists/*
+
+# ------------------------------------------------------------------------------------
+# (No AWS CLI / build credentials needed — the appworld source now comes from public
+# GitHub, not a private S3 bucket. AWS creds are only needed at *runtime* for Bedrock,
+# passed via `docker run -e AWS_*`.)
+
+# --- Install uv (fast Python + env manager) from PyPI ---
+RUN pip install --no-cache-dir uv
+# ----------------------------------------------
+
+# Keep your env var names as-is; code relying on these will still work
+ENV VENV_MAIN=/opt/venv_main \
+    VENV_AUX=/opt/venv_aux
+
+    # --- Install Python 3.12 and 3.11 via uv ---
+RUN uv python install 3.12 3.11
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+ && rm -rf /var/lib/apt/lists/*
+
+# --- Create the two virtualenvs at the paths you expect ---
+RUN uv venv "$VENV_MAIN" --python 3.12 && \
+    uv venv "$VENV_AUX" --python 3.12
+#     "$VENV_MAIN/bin/pip" install --upgrade pip && \
+#     "$VENV_AUX/bin/pip" install --upgrade pip
+# -----------------------------------------------------------
+
+
+# Set workdir
+WORKDIR /app
+
+# NOTE: the internal AgentCoreEvaluationMetricsLibrary / AgentCoreEvaluationOpenTelemetryMapper
+# packages are not required by this runtime (nothing imports them; opentelemetry-instrument
+# comes from aws-opentelemetry-distro in main_requirements.txt). Re-add COPY + uv pip install
+# lines here if you want their custom evaluation metrics.
+
+# Copy dependency files first (better layer caching)
+COPY examples/appworld/appworld_runtime/appworld_requirements.txt examples/appworld/appworld_runtime/main_requirements.txt ./
+
+# Use uv pip to install into each env
+RUN uv pip install --python "$VENV_MAIN/bin/python" --no-cache -r main_requirements.txt && \
+    uv pip install --python "$VENV_AUX/bin/python" --no-cache -r appworld_requirements.txt
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git-lfs \
+ && git lfs install \
+ && rm -rf /var/lib/apt/lists/*
+
+# Fetch the appworld source (0.2.x) from the PUBLIC GitHub repo at the pinned commit,
+# instead of a private S3 mirror. It MUST be a full git-lfs checkout, not `pip install
+# git+...`: the apps package `appworld install` unpacks ships as a Git LFS bundle, and a
+# shallow pip fetch leaves it as an LFS pointer ("is a Git LFS pointer and not a bundle").
+RUN git clone --quiet https://github.com/stonybrooknlp/appworld.git ./appworld && \
+    git -C ./appworld checkout --quiet 11e8d1832ffd564d3a87d30d6ad9a1e5997afda1 && \
+    git -C ./appworld lfs pull
+# Pin the appworld version to a release string (drop the .dev0 suffix). Edit the
+# source's pyproject in place — the only change vs the pinned upstream commit.
+RUN sed -i 's/^version = "0.2.0.dev0"/version = "0.2.0"/' ./appworld/pyproject.toml
+# Pin the data version to 0.1.0 (the bundle this image downloads). Edit the file in
+# place rather than shipping a full copy — the only change vs upstream constants.py.
+RUN sed -i 's/^DATA_VERSION = .*/DATA_VERSION = "0.1.0"/' ./appworld/src/appworld/common/constants.py
+
+RUN uv pip install --python "$VENV_MAIN/bin/python" ./appworld
+RUN uv pip install --python "$VENV_AUX/bin/python" appworld
+# RUN uv pip install --python "$VENV_MAIN/bin/python" --no-cache "git+https://github.com/stonybrooknlp/appworld.git@11e8d1832ffd564d3a87d30d6ad9a1e5997afda1"
+
+RUN "$VENV_AUX/bin/appworld" install 
+RUN "$VENV_AUX/bin/appworld" download data
+
+RUN "$VENV_MAIN/bin/appworld" install 
+RUN "$VENV_MAIN/bin/appworld" download data
+
+# # Install Python deps for each environment
+# RUN "$VENV_MAIN/bin/pip" install -r appworld_requirements.txt && \
+#     "$VENV_AUX/bin/pip" install -r main_requirements.txt
+
+# Install strands_harness_optimizer from THIS repo (not PyPI) so the runtime tracks the
+# current working code. Copy only what the wheel needs. Its version comes from git tags
+# via hatch-vcs; .git isn't in the build context, so pin the version explicitly.
+COPY pyproject.toml README.md ./harness_pkg/
+COPY strands_harness_optimizer ./harness_pkg/strands_harness_optimizer
+RUN SETUPTOOLS_SCM_PRETEND_VERSION=0.0.2 \
+    uv pip install --python "$VENV_MAIN/bin/python" --no-cache ./harness_pkg
+
+# Copy runtime code (entrypoint, local helpers, dataset package, build utils).
+COPY examples/appworld/appworld_runtime/_local.py ./_local.py
+COPY examples/appworld/appworld_runtime/dataset ./dataset
+COPY examples/appworld/appworld_runtime/prompts ./prompts
+
+EXPOSE 8080
+# EXPOSE 8000
+
+ENV DOCKER_CONTAINER=1
+ENV APPWORLD_DATASET_CSV=./datasets/appworld
+
+# Task CSVs are a cache of AppWorld's own task data — generate them from the
+# installed appworld package at build time instead of shipping them in git.
+COPY examples/appworld/appworld_runtime/generate_csvs.py ./generate_csvs.py
+RUN "$VENV_MAIN/bin/python" generate_csvs.py ./datasets/appworld
+ENV APPWORLD_EXECUTE_ENV=/opt/venv_aux
+# No SYSTEM_PROMPT_YAML_PATH needed - prompt comes from invocation payload
+
+
+# CMD ["uv", "run", "--python", " $VENV_MAIN/bin/python", "opentelemetry-instrument", "python", "-m", "app"]
+# CMD ["uv", "run", "--python", " $VENV_MAIN/bin/python", "opentelemetry-instrument", "python", "-m", "app"]
+
+COPY examples/appworld/appworld_runtime/app.py ./app.py
+
+
+CMD uv run --python "$VENV_MAIN/bin/python" opentelemetry-instrument python -m app
+
