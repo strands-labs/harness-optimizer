@@ -69,7 +69,7 @@ class StatefulOptimizer(FormulaOptimizer):
 
 ## BaseAgenticOptimizer
 
-`BaseAgenticOptimizer` is the base class for optimizers that use a strands Agent with tools to analyze rollouts. It provides infrastructure that specific agentic optimizers build on:
+`BaseAgenticOptimizer` is the base class for optimizers that use a strands Agent with tools to analyze rollouts. It is Formula-agnostic — `ContrastiveReflectionOptimizer` (system prompts, skill text) and `SkillLibraryOptimizer` (a whole skill library) both build on it. It provides infrastructure that specific agentic optimizers build on:
 
 - In-memory trace sampling (random or stratified by reward)
 - Writing sampled traces to temp folders as JSON

@@ -169,12 +169,16 @@ strands_harness_optimizer/
 ├── formulas/                       # Formula framework
 │   ├── formula.py                  # Formula ABC
 │   ├── system_prompt_formula.py   # Built-in: SystemPromptFormula
-│   └── context_expansion_formula.py # Built-in: ContextExpansionFormula
+│   ├── context_expansion_formula.py # Built-in: ContextExpansionFormula
+│   ├── skill_formula.py           # Built-in: SkillFormula (one skill's text)
+│   └── skill_library_formula.py   # Built-in: SkillLibraryFormula (a skill library)
 ├── optimizers/                     # Optimization framework
 │   ├── optimizer.py                # FormulaOptimizer ABC
-│   └── system_prompt/              # Built-in optimizers
-│       ├── base_agentic_optimizer.py   # BaseAgenticOptimizer
-│       └── contrastive_reflection.py   # ContrastiveReflectionOptimizer
+│   ├── base_agentic_optimizer.py   # BaseAgenticOptimizer (Formula-agnostic)
+│   ├── system_prompt/              # Built-in optimizers
+│   │   └── contrastive_reflection.py   # ContrastiveReflectionOptimizer
+│   └── skills/
+│       └── skill_library.py        # SkillLibraryOptimizer
 ├── rewards/                        # Reward computation
 │   └── reward_function.py         # RewardFunction ABC
 ├── rollout_engines/                # Agent rollout generation

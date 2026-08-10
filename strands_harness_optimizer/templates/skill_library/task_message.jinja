@@ -1,0 +1,251 @@
+Your system instructions carry the three-pass method (`## Analyze`), the op table (`## Decide`), and the rules. This message carries the data, the tools, and the files to write. Work the method there; use what is here to do it.
+
+## Inputs
+
+- **Traces** — `{{ traces_folder }}`, one JSON per task attempt.
+- **Output** — `{{ output_folder }}`, everything you produce.
+{% if skill_folder %}- **Deployed library** — `{{ skill_folder }}`, one folder per skill.
+  **Do not open these until Pass B.** Read a full body with `cat "{{ skill_folder }}/<skill-name>/SKILL.md"`. Names and triggers only, for the census:
+
+{{ skill_index }}
+{% else %}- **Deployed library** — empty. Pass B is trivial: every finding gets `trigger_match: "no-trigger-applies"`, `content_covers: {"skill": null, "verdict": "no"}`, `guidance_followed: null`. Every edit is a `create`, or there are none.
+{% endif %}
+
+Where the three observables sit inside each trace file:
+
+| observable | path in the JSON |
+|---|---|
+| reward | `reward`, else `eval_result.reward`. **Absent** when the attempt errored before scoring |
+| skills loaded | `response.messages[].content[].toolUse` with `name == "skills"` → `input.skill_name` |
+| trajectory | `response.messages[].content[]` blocks: `{text}`, `{toolUse:{name,input}}`, `{toolResult:{status,content}}` |
+
+## Tools
+
+Traces run 30-240KB because tool results dominate the bytes; none is worth reading raw. Write these two extractors once, then work from their output.
+
+```bash
+mkdir -p "{{ output_folder }}/findings"
+
+cat > "{{ output_folder }}/_census.py" << 'PY'
+import json,sys,os
+d=json.load(open(sys.argv[1]))
+r=d.get('reward')
+if r is None and isinstance(d.get('eval_result'),dict): r=d['eval_result'].get('reward')
+err=(d.get('error') or '').replace('\t',' ')[:60]
+bucket='errored' if r is None else ('pass' if r>=1.0 else ('fail' if r<=0.0 else 'partial'))
+msgs=d.get('response',{}).get('messages',[]) if isinstance(d.get('response'),dict) else []
+tools=0; skills=set()
+for m in msgs:
+    for b in (m.get('content',[]) if isinstance(m.get('content'),list) else []):
+        if isinstance(b,dict) and 'toolUse' in b:
+            tools+=1
+            if b['toolUse'].get('name')=='skills':
+                skills.add(b['toolUse'].get('input',{}).get('skill_name',''))
+print(f"{os.path.basename(sys.argv[1])}\t{'NA' if r is None else r}\t{bucket}\t{tools}\t{','.join(sorted(s for s in skills if s)) or 'none'}\t{err}")
+PY
+
+cat > "{{ output_folder }}/_traj.py" << 'PY'
+import json,sys,os
+f=sys.argv[1]; lim=int(sys.argv[2]) if len(sys.argv)>2 else 300
+d=json.load(open(f))
+r=d.get('reward')
+if r is None and isinstance(d.get('eval_result'),dict): r=d['eval_result'].get('reward')
+print(f"### {os.path.basename(f)} reward={r} error={(d.get('error') or 'none')[:80]}")
+msgs=d.get('response',{}).get('messages',[]) if isinstance(d.get('response'),dict) else []
+for i,m in enumerate(msgs):
+    for b in (m.get('content',[]) if isinstance(m.get('content'),list) else []):
+        if not isinstance(b,dict): continue
+        if 'text' in b and b['text'].strip():
+            print(f"[{i}] TEXT {b['text'].strip()[:lim]}")
+        elif 'toolUse' in b:
+            print(f"[{i}] CALL {b['toolUse'].get('name')} {json.dumps(b['toolUse'].get('input',{}))[:lim]}")
+        elif 'toolResult' in b:
+            t=' '.join(x.get('text','') for x in b['toolResult'].get('content',[]) if isinstance(x,dict))
+            print(f"[{i}] RESULT[{b['toolResult'].get('status','?')}] {t.strip()[:lim]}")
+PY
+
+# One row per trace: file, reward, bucket, tool calls, skills loaded, error.
+: > "{{ output_folder }}/census.tsv"
+for f in {{ traces_folder }}/*.json; do
+    case "$(basename "$f")" in summary.json|meta.json|config.json) continue;; esac
+    python3 "{{ output_folder }}/_census.py" "$f" >> "{{ output_folder }}/census.tsv"
+done
+
+# These must match, or the census missed files and every count below is wrong.
+echo "rows: $(wc -l < "{{ output_folder }}/census.tsv")  files: $(ls {{ traces_folder }}/*.json | grep -Ev 'summary|meta|config' | wc -l)"
+
+awk -F'\t' '{n++;b[$3]++; if($3!="errored"){s+=$2;k++}}
+END{printf "traces=%d errored=%d | pass=%d partial=%d fail=%d | mean_reward=%.3f\n",
+n,b["errored"],b["pass"],b["partial"],b["fail"],(k?s/k:0)}' "{{ output_folder }}/census.tsv"
+cut -f5 "{{ output_folder }}/census.tsv" | tr ',' '\n' | sort | uniq -c | sort -rn
+```
+
+Three readings of that output before you go further. The folder is a **deliberately failure-enriched sample** drawn from a larger rollout, so its pass rate is NOT the agent's true rate — use the counts to rank causes against each other, never to report performance. A trace bucketed `errored` never scored; read its error column and support no edit from it unless the trajectory shows the agent caused the stall. A deployed skill with a near-zero count in the last table never fires, so it can only be a trigger defect.
+
+Reading one trace for a Pass-A finding — shape first, then the words that explain it:
+
+```bash
+# Decision shape. Compare a loser against a winner of the closest task type; every trace
+# has a different instruction, so diffing whole trajectories only reports that.
+# QUOTE the filenames. Some benchmarks encode the injected fault in the name, so it
+# contains |, [ and ] -- unquoted, bash reads those as pipes and globs and dies with a
+# syntax error before running anything.
+for t in "<fail-trace>.json" "<pass-trace>.json"; do
+    echo "--- $t"
+    python3 "{{ output_folder }}/_traj.py" "{{ traces_folder }}/$t" 40 \
+      | grep CALL | sed 's/ {.*//' | nl -ba
+done
+
+# Then the loser's reasoning in full, around the index where the shapes parted. The
+# verbatim TEXT line before the diverging CALL is what `failure` must quote.
+python3 "{{ output_folder }}/_traj.py" "{{ traces_folder }}/<fail-trace>.json" 4000 \
+  | sed -n '/^\[11\]/,/^\[15\]/p'
+```
+
+A skipped step, an extra loop, a missing verification, a reversed order — any of those points at an index. If the shapes match, the divergence is in the *content* of one call, so compare inputs at the same step number. Each shell call is a fresh process, so substitute filenames rather than setting variables.
+
+Pass C is a query, not a re-read. Once `findings/` is populated:
+
+```bash
+# cluster sizes by label, and the reconciliation mix inside each
+python3 - <<'PY'
+import json,glob,collections
+F=[json.load(open(f)) for f in glob.glob("{{ output_folder }}/findings/*.json")]
+by=collections.defaultdict(list)
+for x in F: by[x["root_cause_label"]].append(x)
+for lab,g in sorted(by.items(), key=lambda kv:-len(kv[1])):
+    cov=collections.Counter(x["content_covers"]["verdict"] for x in g)
+    tm=collections.Counter(x["trigger_match"] for x in g)
+    gf=collections.Counter(x.get("guidance_followed") or "null" for x in g)
+    lens=collections.Counter(x["lens"] for x in g)
+    print(f"{len(g):>3}  {lab:<34} {dict(lens)} covers={dict(cov)} trigger={dict(tm)} followed={dict(gf)}")
+PY
+```
+
+## Output
+
+### `{{ output_folder }}/findings/<trace-file>.json` — one per trace
+
+Pass A writes every field but the last three; Pass B adds those. Use `null` / `[]` where a field does not apply (`workflow` on a failure, `failure` on a win).
+
+```json
+{
+  "trace_id": "<trace file name>",
+  "reward": 0.0,
+  "lens": "winning|failure",
+  "root_cause_label": "short general reusable phrase",
+  "trigger_signal": "the situation in task-surface words — opening framing AND the state where guidance was needed",
+  "skill_scope": "whole-task-workflow|sub-problem",
+  "skills_activated": [],
+  "workflow": ["ordered step, decision folded in"],
+  "failure": "first wrong step at [index] + verbatim quote -> correct action instead",
+  "needed_guidance": "one sentence, phrased independently of existing skills",
+  "domain_facts_verifiable": [],
+  "domain_facts_inferred": [],
+  "trigger_match": "matched-and-loaded|should-have-matched-but-did-not|no-trigger-applies",
+  "content_covers": {"skill": null, "verdict": "fully|partially|no"},
+  "guidance_followed": "followed-and-helped|followed-but-still-failed|ignored|contradicted|null"
+}
+```
+
+### The edits
+
+One folder per edited skill, each holding a complete SKILL.md. These names are the contract the pipeline reads:
+
+| op | write |
+|---|---|
+| `create` | `{{ output_folder }}/create/<skill-name>/SKILL.md` |
+| `update` | `{{ output_folder }}/optimize/<skill-name>/SKILL.md` — the COMPLETE file, replacing the deployed one |
+| `skip` | nothing |
+
+`<skill-name>` is the folder name and must equal the frontmatter `name:`. An `update` replaces the deployed file wholesale, so anything you leave out is deleted — when changing only the trigger, copy the body verbatim, and vice versa.
+
+```markdown
+---
+name: <skill-name>
+description: "Use when <trigger condition, in the traces' own words> — at the start of <situation>, or at any point once <situation> is what is being worked on. <what it does>."
+---
+
+# <Skill Title>
+
+## Overview
+<2-3 sentences: what this skill helps with, derived from the cluster's findings>
+
+## When to Use
+<the trigger spelled out: the opening framing AND the mid-stream states, from `trigger_signal`>
+
+## Workflow
+<numbered steps, built from the cluster's `workflow`. CONCRETE — a named tool, argument,
+ check or ordering per step, never "refine the search". Annotate each step's support:
+ [HIGH: 7/7 traces] / [MEDIUM: 4/9] / [LOW: 1/3]>
+
+## Decision Heuristics
+<at <the choice point from the divergence>, prefer <what winners did> [MEDIUM: 3/5].
+ Use a table when the choice has more than two branches:>
+
+| situation | prefer | because |
+|---|---|---|
+| <observed state> | <winning action> | <what the traces showed> |
+
+## Common Mistakes to Avoid
+| Agent might think... | But actually... | Instead... |
+|---|---|---|
+| <the false belief, quoted from a `failure`> | <what the trace shows> | <the correct action> |
+
+## Domain Knowledge
+<`domain_facts_verifiable` stated as fact; `domain_facts_inferred` as "prefer X" /
+ "in observed cases X" and marked [inferred]. Never invent a policy or tool behaviour.>
+```
+
+`Overview`, `When to Use` and `Workflow` are always present. Drop `Decision Heuristics`, `Common Mistakes` or `Domain Knowledge` only when the cluster gave you no evidence for them — an empty heading invites the next run to fill it with speculation.
+
+**Write the body out in full.** A skill that fits in 30 lines has almost certainly dropped the workflow detail that makes it usable: on this benchmark family the skills that measurably worked run **60-150 lines** each, carrying the full ordered procedure plus the mistakes table. Terseness is not a virtue here — every line must be concrete and trace-backed, and there are usually many such lines. Compress only when a body exceeds ~300 lines.
+
+### `{{ output_folder }}/manifest.json`
+
+```json
+{
+  "traces": 0,
+  "errored": 0,
+  "mean_reward": 0.0,
+  "findings_written": 0,
+  "clusters": [
+    {"root_cause_label": "label", "lens": "winning|failure", "findings": 0,
+     "trigger_signal": "the shared situation", "skill_scope": "whole-task-workflow|sub-problem",
+     "reconciliation": "the content_covers / trigger_match / guidance_followed counts that decided this",
+     "op": "create|update|skip", "part": "trigger|body|both|null",
+     "skill": "name or null", "why": "one sentence"}
+  ],
+  "edits": [
+    {"op": "create|update", "part": "trigger|body|both|null", "skill": "name",
+     "root_cause_label": "the cluster it answers", "evidence": ["trace.json"],
+     "confidence": "verified|inferred"}
+  ]
+}
+```
+
+Every cluster you formed appears in `clusters`, the rejected ones with `"op": "skip"` and the reason — a rejected cluster is the record that you looked and chose not to act. `edits` holds exactly one entry per file you wrote.
+
+Before you finish:
+
+```bash
+echo "findings: $(ls "{{ output_folder }}/findings"/*.json 2>/dev/null | wc -l)  census rows: $(wc -l < "{{ output_folder }}/census.tsv")"
+python3 -c "
+import json,glob,sys
+bad=0
+for f in glob.glob('{{ output_folder }}/findings/*.json'):
+    d=json.load(open(f))
+    for k in ('root_cause_label','trigger_signal','lens','trigger_match','content_covers','needed_guidance'):
+        if d.get(k) in (None,''): print('missing',k,'in',f); bad=1
+print('findings ok' if not bad else 'FIX THE ABOVE')"
+for d in "{{ output_folder }}"/create/*/ "{{ output_folder }}"/optimize/*/; do
+    [ -d "$d" ] || continue
+    n=$(basename "${d%/}"); f="${d%/}/SKILL.md"
+    grep -q "^name: *$n$" "$f" && echo "ok   $n" || echo "MISMATCH $n vs its frontmatter"
+    grep -qi 'description: *"\?Use when' "$f" || echo "  no 'Use when' trigger: $n"
+done
+python3 -c "import json;json.load(open('{{ output_folder }}/manifest.json'));print('manifest ok')"
+rm -f "{{ output_folder }}/_census.py" "{{ output_folder }}/_traj.py"
+```
+
+The findings count must equal the census row count — a trace with no finding was never analyzed. Fix anything reported, then stop. If you made no edits, leave `create/` and `optimize/` absent; `findings/` and the manifest carry the result.

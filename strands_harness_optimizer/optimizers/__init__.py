@@ -2,6 +2,7 @@
 
 from .base_agentic_optimizer import BaseAgenticOptimizer
 from .optimizer import FormulaOptimizer
+from .skills import SkillLibraryOptimizer
 from .system_prompt import ContrastiveReflectionOptimizer, MultiAgentOptimizer
 
 __all__ = [
@@ -9,4 +10,5 @@ __all__ = [
     "BaseAgenticOptimizer",
     "ContrastiveReflectionOptimizer",
     "MultiAgentOptimizer",
+    "SkillLibraryOptimizer",
 ]
