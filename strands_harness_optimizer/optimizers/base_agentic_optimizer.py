@@ -3,7 +3,12 @@ Base class for optimizers that use a strands Agent with shell tools.
 
 Provides infrastructure for writing rollouts to temp folders, creating
 strands Agents with shell tool access, output guardrails, and a
-submit_optimized_prompt tool for reliable prompt extraction.
+submit_optimized_params tool for reliable parameter extraction.
+
+Formula-agnostic: it handles the parts every agentic optimizer needs (which traces
+to look at, how to build and invoke the agent, how to checkpoint) and leaves the
+optimization algorithm to ``step()``. Subclasses live beside it in
+``optimizers/system_prompt/`` and ``optimizers/skills/``.
 """
 
 import json
@@ -24,9 +29,9 @@ from strands import Agent, tool
 from strands.models import BedrockModel
 from strands_tools import shell
 
-from ...formulas import Formula
-from ...utils.guardrails import ToolOutputGuardrail
-from ..optimizer import FormulaOptimizer
+from ..formulas import Formula
+from ..utils.guardrails import ToolOutputGuardrail
+from .optimizer import FormulaOptimizer
 
 logger = logging.getLogger(__name__)
 
@@ -54,17 +59,21 @@ submit_optimized_params(file_path_dict={"system_prompt": "/tmp/system_prompt.txt
 
 class BaseAgenticOptimizer(FormulaOptimizer):
     """
-    Base class for agent-based system prompt optimizers.
+    Base class for agent-based Formula optimizers.
 
     Provides:
     - Writing rollouts to a temp folder as JSON files
     - Creating a strands Agent with shell tool and output guardrail
-    - A submit_optimized_prompt tool for reliable prompt extraction
+    - A submit_optimized_params tool for reliable parameter extraction
     - Stratified sampling of traces by reward
     - Configurable boto, model, and guardrail settings
 
     Subclasses implement step() to define the optimization algorithm,
-    using the inherited helper methods.
+    using the inherited helper methods. None of the above is specific to a
+    particular Formula: ContrastiveReflectionOptimizer submits parameter VALUES,
+    while SkillLibraryOptimizer has its agent write a decision tree, and both
+    reuse everything here. Override ``_get_extra_tools`` to add tools, and
+    ``_get_tools`` to replace the default set.
     """
 
     _DEFAULT_MODEL_CONFIG = {
@@ -188,7 +197,7 @@ class BaseAgenticOptimizer(FormulaOptimizer):
         agent = Agent(
             system_prompt=full_system_prompt,
             model=model,
-            tools=[shell, submit_optimized_params] + self._get_extra_tools(),
+            tools=self._get_tools(submit_optimized_params) + self._get_extra_tools(),
         )
 
         # Register output truncation guardrail
@@ -196,6 +205,19 @@ class BaseAgenticOptimizer(FormulaOptimizer):
         guardrail.register(agent)
 
         return agent
+
+    def _get_tools(self, submit_optimized_params) -> list:
+        """Return the agent's BASE toolset.
+
+        Default is ``[shell, submit_optimized_params]``. Override to replace the
+        set — a subclass whose agent submits its result some other way (writing a
+        folder of files, say) should drop the submit tool rather than be handed one
+        that does nothing for it, since an unused tool in the schema is an
+        invitation to call it.
+
+        To ADD tools while keeping these, override ``_get_extra_tools`` instead.
+        """
+        return [shell, submit_optimized_params]
 
     def _get_extra_tools(self) -> list:
         """Return additional tools for the agent. Override in subclasses."""

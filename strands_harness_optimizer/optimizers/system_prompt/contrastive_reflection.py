@@ -12,7 +12,7 @@ from jinja2 import Template
 
 from ...formulas import Formula
 from ...utils.templates import create_template
-from .base_agentic_optimizer import BaseAgenticOptimizer
+from ..base_agentic_optimizer import BaseAgenticOptimizer
 
 logger = logging.getLogger(__name__)
 
