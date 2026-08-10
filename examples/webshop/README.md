@@ -40,6 +40,7 @@ findings and appends them to the system prompt. This mirrors the internal
 |------|-----------|
 | [`webshop_agentcore_optimization.py`](webshop_agentcore_optimization.py) | The **optimizer** (client). Runs the Trainer loop against the runtime with the multi-agent optimizer. Needs only `strands_harness_optimizer` + a runtime endpoint. |
 | [`webshop_runtime/`](webshop_runtime/) | The **deployable runtime** (container). Builds a Strands + WebShop-gym agent as an AgentCore runtime. See its [README](webshop_runtime/README.md). |
+| [`webshop_skill_library_optimization.py`](webshop_skill_library_optimization.py) | The **skill-library** optimizer (client). Curates the SET of skills the agent has, instead of tuning the system prompt. |
 | [`run_example.sh`](run_example.sh) | One-command driver: build the runtime, start it, wait for health, run the optimizer, clean up. |
 
 ## Quick start (local container)
@@ -83,3 +84,32 @@ WebShop tasks are integer goal indices. A split is a contiguous range:
 
 Set `WEBSHOP_TASK_IDS` for a quick subset, or `WEBSHOP_SPLIT` to train on the whole
 range. The default dataset in the runtime is WebShop's small **1000-product** set.
+
+## Two surfaces on one runtime
+
+The same container serves both optimizers — it applies whatever the payload carries:
+
+| surface | client | what it optimizes | payload key |
+|---|---|---|---|
+| system prompt | `webshop_agentcore_optimization.py` | the prompt text | `system_prompt` |
+| skill library | `webshop_skill_library_optimization.py` | which skills exist (create / revise / retire) | `skills_folder` |
+
+```bash
+./examples/webshop/run_example.sh              # system prompt (default)
+./examples/webshop/run_example.sh --skills     # skill library
+```
+
+Skills travel **inline** in the payload as `[{path, content}]`, not as an S3 pointer,
+so no bucket and no extra IAM are needed — and a saved trace records the skill text the
+agent actually read. Measured skill sets are 8–20 KB, well inside a payload. For a
+library that outgrows that (or carries binary resources), switch to uploading the
+materialized folder and sending a URI instead; `install_skills` in the runtime's
+`_local.py` is the only place that would change.
+
+The runtime echoes `skills_applied` in its response, and the client checks it. That is
+what distinguishes *"the skills did not help"* from *"the skills never loaded"* — a
+runtime built before the `skills_folder` key ignores it silently, and the resulting flat
+reward looks identical to a real null result.
+
+Reward for the curator comes from the same place as the prompt optimizer's:
+`eval_result.metrics.score` — match score in [0,1] (partial credit).

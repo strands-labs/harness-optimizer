@@ -58,7 +58,7 @@ print("Agent Starting")
 
 os.environ["BYPASS_TOOL_CONSENT"] = BYPASS_TOOL_CONSENT
 
-from _local import create_strands_agent
+from _local import create_strands_agent, install_skills
 from dataset import WebShopDataset, WebShopEnvironment
 
 logger.info(f"Creating WebShop dataset (split={DATASET_SPLIT}, task_ids={TASK_IDS})")
@@ -135,6 +135,14 @@ def invoke(payload):
     processor_system_prompt = payload.get("system_prompt", system_prompt)
     processor.update_params({"system_prompt": processor_system_prompt})
 
+    # Skill-library optimization: the optimizer ships its current skill set INLINE
+    # as [{path, content}]. Absent the key nothing changes, so a prompt-only run is
+    # unaffected. Installed per invocation because the set changes between
+    # iterations, and AgentSkills reads its folder only at plugin-init time.
+    n_skills = 0
+    if "skills_folder" in payload:
+        n_skills = install_skills(agent, payload.get("skills_folder"))
+
     # Extract payload parameters.
     task_id = payload.get("task_id")
     exp_id = payload.get("exp_id", "default")
@@ -163,6 +171,10 @@ def invoke(payload):
         "messages": adapter.extract_context(agent)["messages"],
         "stop_reason": None,
         "eval_result": eval_result,
+        # Echoed so the client can tell "the skills did not help" apart from "the
+        # skills never loaded" -- a runtime that predates the payload key ignores
+        # it silently, and the resulting null delta looks identical to a real one.
+        "skills_applied": n_skills,
     }
 
 

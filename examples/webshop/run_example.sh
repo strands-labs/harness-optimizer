@@ -4,13 +4,15 @@
 # multi-agent system-prompt optimizer against it (the local-container / HTTP-engine path).
 #
 # Usage:
-#   ./run_example.sh [-f DOCKERFILE] [-s SPLIT] [-t TASK_IDS] [-p PORT] [--build-only] [--no-build]
+#   ./run_example.sh [-f DOCKERFILE] [-s SPLIT] [-t TASK_IDS] [-p PORT] [--skills] [--build-only] [--no-build]
 #
 #   -f  Dockerfile to build (default: webshop_runtime/Dockerfile.amd64 — fully public,
 #       Bedrock, dual venv). Use Dockerfile.arm64 for the arm64 build AgentCore runs.
 #   -s  Split to train on: train (goal indices 0-99) / eval (0-199). Default: train.
 #   -t  Comma-separated WebShop task ids (goal indices) to train on a SUBSET instead.
 #   -p  Host port to publish the runtime on (default: 8080).
+#   --skills       Optimize the SKILL LIBRARY instead of the system prompt
+#                  (runs *_skill_library_optimization.py; skills ship inline in the payload).
 #   --build-only   Build the image and exit.
 #   --no-build     Skip building; assume the image already exists.
 #
@@ -34,6 +36,7 @@ IMAGE="webshop-runtime"
 CONTAINER="webshop-runtime"
 BUILD=1
 RUN_OPTIMIZER=1
+SURFACE="system_prompt"   # --skills switches to the skill-library client
 AWS_REGION="${AWS_REGION:-us-west-2}"
 
 # --- args ---
@@ -43,6 +46,7 @@ while [[ $# -gt 0 ]]; do
     -t) TASK_IDS="$2"; shift 2 ;;      # subset override (comma-separated); else full split
     -s) SPLIT="$2"; shift 2 ;;         # which split to train on (train/eval)
     -p) PORT="$2"; shift 2 ;;
+    --skills) SURFACE="skills"; shift ;;
     --build-only) RUN_OPTIMIZER=0; shift ;;
     --no-build) BUILD=0; shift ;;
     -h|--help) sed -n '2,30p' "$0"; exit 0 ;;
@@ -144,6 +148,12 @@ else
   echo ">> Training on the full '$SPLIT' split range"
 fi
 
-python3 examples/webshop/webshop_agentcore_optimization.py
+if [[ "$SURFACE" == "skills" ]]; then
+  echo ">> Optimizing the SKILL LIBRARY (WebShop)"
+  python3 examples/webshop/webshop_skill_library_optimization.py
+else
+  echo ">> Optimizing the SYSTEM PROMPT (WebShop)"
+  python3 examples/webshop/webshop_agentcore_optimization.py
+fi
 
 echo ">> Done."
