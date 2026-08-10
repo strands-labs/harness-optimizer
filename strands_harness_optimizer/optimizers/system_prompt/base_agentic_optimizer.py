@@ -15,6 +15,10 @@ import tempfile
 import time
 from typing import Optional
 
+# Must precede the strands_tools import below: without it shell initializes in
+# interactive-consent mode and the model refuses to run any command.
+os.environ.setdefault("BYPASS_TOOL_CONSENT", "true")
+
 from botocore.config import Config as BotocoreConfig
 from strands import Agent, tool
 from strands.models import BedrockModel
@@ -283,6 +287,27 @@ class BaseAgenticOptimizer(FormulaOptimizer):
     def _write_traces_to_temp(self, indices: list[int]) -> str:
         """Write selected rollouts with rewards to a temp folder as JSON files.
 
+        Each file carries the same episode under TWO shapes, because prompts in the
+        wild read one or the other and a prompt that reads the wrong one silently
+        sees nothing:
+
+          ``data.{messages,reward,metrics,task}``
+              The original nesting. The built-in contrastive_reflection templates
+              read this.
+          ``{reward, response.messages, eval_result, task_id}``
+              The shape a deployed AgentCore runtime returns and that rollout
+              traces are conventionally stored in. Prompts written against real
+              trace folders read ``d["reward"]`` and
+              ``d["response"]["messages"]`` -- with only the nested shape, such a
+              prompt reports `reward=None` and finds zero tool calls for EVERY
+              trace, so its census, its success/failure split and its per-tool
+              statistics are all empty while it reports having analyzed the
+              folder.
+
+        Duplication costs a little disk in a temp folder that is deleted at the end
+        of the step; a prompt silently analyzing nothing costs a whole optimizer
+        run.
+
         Args:
             indices: List of indices into self._rollouts / self._rewards to write.
 
@@ -295,25 +320,41 @@ class BaseAgenticOptimizer(FormulaOptimizer):
             rollout = self._rollouts[i]
             reward_obj = self._rewards[i] if i < len(self._rewards) else None
             reward_value = reward_obj.reward if reward_obj else 0
+            metrics = (
+                {"reward": reward_value, "metadata": reward_obj.metadata} if reward_obj else {}
+            )
             data = {
+                # Legacy nesting -- the built-in contrastive_reflection templates.
                 "data": {
                     "messages": rollout.messages,
                     "reward": reward_value,
-                    "metrics": (
-                        {"reward": reward_value, "metadata": reward_obj.metadata}
-                        if reward_obj
-                        else {}
-                    ),
+                    "metrics": metrics,
                     "task": rollout.data_sample,
                 },
+                # invoke.py / AgentCore-runtime convention.
+                "reward": reward_value,
+                "response": {"messages": rollout.messages},
+                "eval_result": {"reward": reward_value},
+                "task_id": rollout.data_sample.get("task_id", f"rollout_{i:04d}"),
+                "metrics": metrics,
             }
 
-            path = os.path.join(self._temp_dir, f"rollout_{i:04d}.json")
+            path = os.path.join(self._temp_dir, f"{self._trace_filename(rollout, i)}.json")
             with open(path, "w") as f:
                 json.dump(data, f, indent=2, default=str)
 
         logger.info(f"Wrote {len(indices)} traces to {self._temp_dir}")
         return self._temp_dir
+
+    @staticmethod
+    def _trace_filename(rollout, index: int) -> str:
+        """Filesystem-safe name for one trace, preserving a task_id if present."""
+        raw = str(rollout.data_sample.get("task_id") or "").strip()
+        if not raw:
+            return f"rollout_{index:04d}"
+        safe = raw.replace("/", "_").replace("\\", "_").replace("\0", "")
+        # Keep it short enough for any filesystem, and unique regardless of the id.
+        return f"{safe[:180]}_{index:04d}"
 
     def _cleanup_temp(self) -> None:
         """Clean up temporary folders."""
