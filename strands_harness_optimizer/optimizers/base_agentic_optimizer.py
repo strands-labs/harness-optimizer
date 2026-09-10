@@ -3,7 +3,12 @@ Base class for optimizers that use a strands Agent with shell tools.
 
 Provides infrastructure for writing rollouts to temp folders, creating
 strands Agents with shell tool access, output guardrails, and a
-submit_optimized_prompt tool for reliable prompt extraction.
+submit_optimized_params tool for reliable parameter extraction.
+
+Formula-agnostic: it handles the parts every agentic optimizer needs (which traces
+to look at, how to build and invoke the agent, how to checkpoint) and leaves the
+optimization algorithm to ``step()``. Subclasses live beside it in
+``optimizers/system_prompt/`` and ``optimizers/skills/``.
 """
 
 import json
@@ -15,14 +20,18 @@ import tempfile
 import time
 from typing import Optional
 
+# Must precede the strands_tools import below: without it shell initializes in
+# interactive-consent mode and the model refuses to run any command.
+os.environ.setdefault("BYPASS_TOOL_CONSENT", "true")
+
 from botocore.config import Config as BotocoreConfig
 from strands import Agent, tool
 from strands.models import BedrockModel
 from strands_tools import shell
 
-from ...formulas import Formula
-from ...utils.guardrails import ToolOutputGuardrail
-from ..optimizer import FormulaOptimizer
+from ..formulas import Formula
+from ..utils.guardrails import ToolOutputGuardrail
+from .optimizer import FormulaOptimizer
 
 logger = logging.getLogger(__name__)
 
@@ -50,17 +59,21 @@ submit_optimized_params(file_path_dict={"system_prompt": "/tmp/system_prompt.txt
 
 class BaseAgenticOptimizer(FormulaOptimizer):
     """
-    Base class for agent-based system prompt optimizers.
+    Base class for agent-based Formula optimizers.
 
     Provides:
     - Writing rollouts to a temp folder as JSON files
     - Creating a strands Agent with shell tool and output guardrail
-    - A submit_optimized_prompt tool for reliable prompt extraction
+    - A submit_optimized_params tool for reliable parameter extraction
     - Stratified sampling of traces by reward
     - Configurable boto, model, and guardrail settings
 
     Subclasses implement step() to define the optimization algorithm,
-    using the inherited helper methods.
+    using the inherited helper methods. None of the above is specific to a
+    particular Formula: ContrastiveReflectionOptimizer submits parameter VALUES,
+    while SkillLibraryOptimizer has its agent write a decision tree, and both
+    reuse everything here. Override ``_get_extra_tools`` to add tools, and
+    ``_get_tools`` to replace the default set.
     """
 
     _DEFAULT_MODEL_CONFIG = {
@@ -184,7 +197,7 @@ class BaseAgenticOptimizer(FormulaOptimizer):
         agent = Agent(
             system_prompt=full_system_prompt,
             model=model,
-            tools=[shell, submit_optimized_params] + self._get_extra_tools(),
+            tools=self._get_tools(submit_optimized_params) + self._get_extra_tools(),
         )
 
         # Register output truncation guardrail
@@ -192,6 +205,19 @@ class BaseAgenticOptimizer(FormulaOptimizer):
         guardrail.register(agent)
 
         return agent
+
+    def _get_tools(self, submit_optimized_params) -> list:
+        """Return the agent's BASE toolset.
+
+        Default is ``[shell, submit_optimized_params]``. Override to replace the
+        set — a subclass whose agent submits its result some other way (writing a
+        folder of files, say) should drop the submit tool rather than be handed one
+        that does nothing for it, since an unused tool in the schema is an
+        invitation to call it.
+
+        To ADD tools while keeping these, override ``_get_extra_tools`` instead.
+        """
+        return [shell, submit_optimized_params]
 
     def _get_extra_tools(self) -> list:
         """Return additional tools for the agent. Override in subclasses."""
@@ -283,6 +309,27 @@ class BaseAgenticOptimizer(FormulaOptimizer):
     def _write_traces_to_temp(self, indices: list[int]) -> str:
         """Write selected rollouts with rewards to a temp folder as JSON files.
 
+        Each file carries the same episode under TWO shapes, because prompts in the
+        wild read one or the other and a prompt that reads the wrong one silently
+        sees nothing:
+
+          ``data.{messages,reward,metrics,task}``
+              The original nesting. The built-in contrastive_reflection templates
+              read this.
+          ``{reward, response.messages, eval_result, task_id}``
+              The shape a deployed AgentCore runtime returns and that rollout
+              traces are conventionally stored in. Prompts written against real
+              trace folders read ``d["reward"]`` and
+              ``d["response"]["messages"]`` -- with only the nested shape, such a
+              prompt reports `reward=None` and finds zero tool calls for EVERY
+              trace, so its census, its success/failure split and its per-tool
+              statistics are all empty while it reports having analyzed the
+              folder.
+
+        Duplication costs a little disk in a temp folder that is deleted at the end
+        of the step; a prompt silently analyzing nothing costs a whole optimizer
+        run.
+
         Args:
             indices: List of indices into self._rollouts / self._rewards to write.
 
@@ -295,25 +342,41 @@ class BaseAgenticOptimizer(FormulaOptimizer):
             rollout = self._rollouts[i]
             reward_obj = self._rewards[i] if i < len(self._rewards) else None
             reward_value = reward_obj.reward if reward_obj else 0
+            metrics = (
+                {"reward": reward_value, "metadata": reward_obj.metadata} if reward_obj else {}
+            )
             data = {
+                # Legacy nesting -- the built-in contrastive_reflection templates.
                 "data": {
                     "messages": rollout.messages,
                     "reward": reward_value,
-                    "metrics": (
-                        {"reward": reward_value, "metadata": reward_obj.metadata}
-                        if reward_obj
-                        else {}
-                    ),
+                    "metrics": metrics,
                     "task": rollout.data_sample,
                 },
+                # invoke.py / AgentCore-runtime convention.
+                "reward": reward_value,
+                "response": {"messages": rollout.messages},
+                "eval_result": {"reward": reward_value},
+                "task_id": rollout.data_sample.get("task_id", f"rollout_{i:04d}"),
+                "metrics": metrics,
             }
 
-            path = os.path.join(self._temp_dir, f"rollout_{i:04d}.json")
+            path = os.path.join(self._temp_dir, f"{self._trace_filename(rollout, i)}.json")
             with open(path, "w") as f:
                 json.dump(data, f, indent=2, default=str)
 
         logger.info(f"Wrote {len(indices)} traces to {self._temp_dir}")
         return self._temp_dir
+
+    @staticmethod
+    def _trace_filename(rollout, index: int) -> str:
+        """Filesystem-safe name for one trace, preserving a task_id if present."""
+        raw = str(rollout.data_sample.get("task_id") or "").strip()
+        if not raw:
+            return f"rollout_{index:04d}"
+        safe = raw.replace("/", "_").replace("\\", "_").replace("\0", "")
+        # Keep it short enough for any filesystem, and unique regardless of the id.
+        return f"{safe[:180]}_{index:04d}"
 
     def _cleanup_temp(self) -> None:
         """Clean up temporary folders."""

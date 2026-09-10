@@ -10,6 +10,8 @@ no ``agent_customizer`` dependency) so this example depends only on
   waiting for a readiness line and draining stdout so its pipe never fills.
 - ``create_strands_agent`` — build a Strands ``Agent`` (Bedrock or an
   OpenAI-compatible endpoint) with MCP + extra tools and a bounded window.
+- ``install_skills`` — materialize an inline ``skills_folder`` payload onto disk
+  and (re)attach the ``AgentSkills`` plugin, for skill-library optimization.
 """
 
 import logging
@@ -136,11 +138,16 @@ def create_strands_agent(
     model_config: Dict[str, Any],
     mcp_client: Optional[Any] = None,
     additional_tools: Optional[List] = None,
+    plugins: Optional[List] = None,
 ) -> Any:
     """Create a Strands Agent (bedrock | openai) with MCP + extra tools.
 
     Provider is chosen explicitly by ``model_config['provider']`` — no inference
     and no fallback between providers; missing required fields raise.
+
+    ``plugins`` is passed straight to ``Agent(plugins=...)``. It exists so a
+    runtime can attach ``AgentSkills`` (skill optimization); ``None`` keeps the
+    previous behaviour exactly.
     """
     from strands import Agent
     from strands.agent.conversation_manager import SlidingWindowConversationManager
@@ -212,11 +219,120 @@ def create_strands_agent(
         window_size=model_config.get("conversation_window_size", 40),
         should_truncate_results=True,
     )
-    agent = Agent(
+    agent_kwargs = dict(
         model=model,
         system_prompt=model_config.get("initial_prompt", ""),
         tools=tools,
         conversation_manager=conversation_manager,
     )
-    logger.info("Created Strands agent with %d total tools", len(tools))
+    # Only pass `plugins` when there are some: an older strands may not accept the
+    # kwarg at all, and every existing caller passes None.
+    if plugins:
+        agent_kwargs["plugins"] = plugins
+    agent = Agent(**agent_kwargs)
+    logger.info(
+        "Created Strands agent with %d total tools and %d plugin(s)",
+        len(tools),
+        len(plugins or []),
+    )
     return agent
+
+
+# --- skills (skill-library optimization) --------------------------------------
+
+SKILLS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_skills")
+
+
+def install_skills(agent: Any, skills_folder: Optional[List[Dict[str, str]]]) -> int:
+    """Write an inline skills payload to disk and (re)attach ``AgentSkills``.
+
+    ``skills_folder`` is the wire shape the skill-library optimizer sends:
+    ``[{"path": "<name>/SKILL.md", "content": "..."}, ...]``. Skills travel INSIDE
+    the payload rather than as an S3 pointer, so the runtime needs no bucket and
+    no credentials beyond what it already has, and a saved trace records the skill
+    text that actually ran.
+
+    The plugin is REBUILT on every call rather than mutated. ``AgentSkills`` reads
+    a filesystem path once, at ``init_agent`` time, so rewriting the folder under a
+    live plugin would not change what the agent sees -- the optimizer's new skills
+    would silently never load, which is indistinguishable from "the skills did not
+    help".
+
+    Returns the number of skills installed (0 clears them).
+    """
+    import shutil
+
+    from strands import AgentSkills
+
+    # Fresh directory each time: a skill the optimizer RETIRED must disappear, and
+    # leaving it on disk would keep it loadable.
+    shutil.rmtree(SKILLS_DIR, ignore_errors=True)
+    os.makedirs(SKILLS_DIR, exist_ok=True)
+
+    for item in skills_folder or []:
+        rel = str(item.get("path") or "").lstrip("/")
+        if not rel or ".." in rel.split("/"):
+            logger.warning("skipping suspicious skills_folder path %r", rel)
+            continue
+        dest = os.path.join(SKILLS_DIR, rel)
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        with open(dest, "w") as f:
+            f.write(item.get("content") or "")
+
+    names = sorted(
+        d for d in os.listdir(SKILLS_DIR)
+        if os.path.isfile(os.path.join(SKILLS_DIR, d, "SKILL.md"))
+    )
+
+    registry = getattr(agent, "_plugin_registry", None)
+    plugins = getattr(registry, "_plugins", None)
+    if plugins is None:
+        logger.warning("agent has no plugin registry; cannot install skills")
+        return 0
+
+    # Drop any previously-installed AgentSkills before adding the new one.
+    existing = plugins.get("agent_skills")
+    if existing is not None:
+        del plugins["agent_skills"]
+
+    if not names:
+        logger.info("skills cleared (no skills in payload)")
+        return 0
+
+    plugin = AgentSkills(skills=SKILLS_DIR)
+    registry.add_and_init(plugin)
+
+    # Report what the AGENT can see, not merely what we wrote: a skill whose
+    # frontmatter is damaged is written but never loadable, and counting files would
+    # call that a success.
+    #
+    # Filesystem skills are resolved per-agent during init_agent, so the resolved
+    # set is only reachable by passing the agent -- and that parameter exists in
+    # newer strands only (1.47 `get_available_skills(self, agent=None)`, 1.33
+    # `get_available_skills(self)`). On the older signature the return value is the
+    # construction-time list, which is EMPTY for a directory-loaded plugin, so it
+    # cannot be used to verify anything; fall back to the files written rather than
+    # reporting a spurious zero.
+    verified = True
+    try:
+        loaded = [s.name for s in plugin.get_available_skills(agent)]
+    except TypeError:
+        loaded, verified = names, False
+
+    if not verified:
+        logger.info(
+            "installed %d skill(s): %s (file count -- this strands version cannot "
+            "report the agent's resolved set, so a skill with damaged frontmatter "
+            "would not be caught here)",
+            len(loaded), ", ".join(sorted(loaded)),
+        )
+    elif len(loaded) != len(names):
+        logger.warning(
+            "wrote %d skill(s) %s but the agent resolved %d %s -- the difference "
+            "could not be loaded (check YAML frontmatter: `name:` and "
+            "`description:` are required)",
+            len(names), names, len(loaded), loaded,
+        )
+    else:
+        logger.info("installed %d skill(s): %s", len(loaded), ", ".join(sorted(loaded)))
+    return len(loaded)

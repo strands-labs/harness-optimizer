@@ -131,5 +131,11 @@ strands_harness_optimizer/_version.py
 # Example output (optimized skills written by examples/skill_optimizer.py)
 optimized_skills/
 
+# Skill-library optimization output: run artifacts (decisions, manifests, skill
+# sets) and the folder a runtime unpacks an inline skills payload into.
+appworld_skill_runs/
+webshop_skill_runs/
+_skills/
+
 # AppWorld task CSVs are generated at build time (examples/appworld/appworld_runtime/generate_csvs.py)
 datasets/appworld/
