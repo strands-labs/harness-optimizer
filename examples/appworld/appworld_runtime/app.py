@@ -70,7 +70,7 @@ print("Agent Starting")
 
 os.environ["BYPASS_TOOL_CONSENT"] = BYPASS_TOOL_CONSENT
 
-from _local import create_strands_agent, install_skills
+from _local import apply_tool_descriptions, create_strands_agent, install_skills
 from dataset import AppWorldDataset, AppWorldEnvironment
 
 logger.info(f"Creating AppWorld dataset with tasks: {TASK_IDS}")
@@ -166,6 +166,12 @@ def invoke(payload):
     if "skills_folder" in payload:
         n_skills = install_skills(agent, payload.get("skills_folder"))
 
+    # Multi-surface optimization: sparse {tool_name: description} overrides for the
+    # tools the optimizer edited. Applied on EVERY invocation, absent key included,
+    # so a tool the optimizer stopped overriding reverts to its own description
+    # rather than keeping a stale patch on the long-lived agent object.
+    tools_applied = apply_tool_descriptions(agent, payload.get("tool_descriptions") or {})
+
     # Extract payload parameters
     task_id = payload.get("task_id")
     exp_id = payload.get("exp_id", "default")
@@ -202,6 +208,7 @@ def invoke(payload):
         # skills never loaded" -- a runtime that predates the payload key ignores
         # it silently, and the resulting null delta looks identical to a real one.
         "skills_applied": n_skills,
+        "tool_descriptions_applied": tools_applied,
     }
 
 if __name__ == "__main__":

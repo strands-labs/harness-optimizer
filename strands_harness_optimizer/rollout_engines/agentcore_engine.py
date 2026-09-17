@@ -22,6 +22,18 @@ PayloadMapper = Callable[[dict], dict]
 
 logger = logging.getLogger(__name__)
 
+# Response keys a runtime echoes to say what it actually APPLIED from the payload
+# (see the example runtimes: `skills_applied`, `tool_descriptions_applied`). Kept
+# in Rollout.metadata so a client can tell "the change did not help" from "the
+# change never reached the agent" -- a runtime that predates a payload key ignores
+# it silently, and the resulting flat reward looks identical to a real one.
+RUNTIME_ECHO_KEYS = ("skills_applied", "tool_descriptions_applied")
+
+
+def _runtime_echoes(response_data: dict) -> dict:
+    return {k: response_data[k] for k in RUNTIME_ECHO_KEYS if k in response_data}
+
+
 _DEFAULT_BOTO_CONFIG = {
     "read_timeout": 900,
     "max_pool_connections": 50,
@@ -174,6 +186,7 @@ class AgentCoreRolloutEngine(AgentRolloutEngine):
             "response_text": str(response_data.get("response", "")),
             "session_id": response_data.get("session_id", ""),
             "eval_result": response_data.get("eval_result", {}),
+            **_runtime_echoes(response_data),
         }
 
         return Rollout(
@@ -329,5 +342,6 @@ class AgentCoreHTTPRolloutEngine(AgentRolloutEngine):
                 ),
                 "session_id": response_data.get("session_id", ""),
                 "eval_result": response_data.get("eval_result", {}),
+                **_runtime_echoes(response_data),
             },
         )

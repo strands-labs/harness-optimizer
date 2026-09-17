@@ -106,9 +106,58 @@ guardrail = ToolOutputGuardrail(max_chars=50000)
 guardrail.register(agent)
 ```
 
+## MultiSurfaceOptimizer
+
+`MultiSurfaceOptimizer` edits the three text surfaces an agent reads — system prompt, skill library, tool descriptions — in one pass. Its reflector reads a sample of traces plus a harness-computed census and objective table, is shown the current prompt, the deployed skills in full and the current tool descriptions, and places each finding in the one surface that reaches the agent when it matters. It takes a `MultiSurfaceFormula`.
+
+```python
+from strands_harness_optimizer.formulas import (
+    MultiSurfaceFormula, SkillLibraryFormula, SystemPromptFormula, ToolDescriptionFormula,
+)
+from strands_harness_optimizer.optimizers import MultiSurfaceOptimizer
+
+formula = MultiSurfaceFormula(
+    system_prompt=SystemPromptFormula(system_prompt=PROMPT),
+    skills=SkillLibraryFormula(skill_dir="./skills"),                     # None for a cold start
+    tool_descriptions=ToolDescriptionFormula.from_yaml("./tool_descriptions.yaml"),
+)
+optimizer = MultiSurfaceOptimizer(formula, output_folder="./runs", n_sample_traces=20)
+optimizer.add_rollouts(rollouts)
+optimizer.add_rewards(rewards)
+optimizer.step()
+
+formula.get_tunable_params()
+# {'system_prompt': '...', 'skill_dir': './runs/step_0001/skill_set', 'tool_descriptions': {'search': '...'}}
+```
+
+Every `step()` writes into a fresh `output_folder/step_NNNN/`. The harness writes `current/` (the prompt and tool descriptions the agent started from, and the rendered prompts it was given); the agent writes only the surfaces it changed — `skills/create/<name>/SKILL.md`, `skills/update/<name>/SKILL.md`, `system_prompt/optimized_prompt.yaml`, `tool_descriptions/optimized_tool_descriptions.yaml` — plus a `findings.json` ledger, always. After applying, the harness materializes the resolved skill set to `skill_set/` and repoints the formula at it. Earlier step directories are never read again, and a failed step leaves a `FAILED.txt` behind.
+
+Validation is structural: an artifact that could not take effect (a skill without frontmatter, a prompt YAML that does not parse, a tool-description file without a mapping) is dropped with a logged reason while the other surfaces apply. If every attempted surface is invalid the step raises. A pass that edits nothing is legitimate as long as `findings.json` was written; no artifacts and no ledger raises, because an empty pass and a crashed agent would otherwise be indistinguishable.
+
+**Objective.** By default the objective is the single term `TaskSuccessScore = Reward.reward`. To optimize a weighted combination of scores, put the components in the reward's metadata and name them:
+
+```python
+Reward(reward=0.5, metadata={
+    "scores": {"TaskSuccessScore": 1.0, "Conciseness": 0.0},
+    "explanations": {"Conciseness": "The agent restated the full cart three times ..."},
+})
+optimizer = MultiSurfaceOptimizer(formula, output_folder="./runs",
+                                  objective_weights={"TaskSuccessScore": 0.5, "Conciseness": 0.5})
+```
+
+Every configured term must be scored on every reward; a missing term raises before the agent runs. Scores not named in the weights are never shown to the agent. Explanations, where present, are shown for episodes the judge scored below perfect.
+
+Tell the agent what each score measures with `objective_definitions={"Conciseness": "..."}`. Your wording wins; a term named after an Amazon Bedrock AgentCore built-in evaluator (`GoalSuccessRate`, `Conciseness`, `Helpfulness`, ...) falls back to that evaluator's own definition; a term with neither is shown as undefined and logged. `TaskSuccessScore` is the reserved name for `Reward.reward`. Weights need not sum to one; the total is a weighted mean, and it is what the trace's `reward` field holds and what stratified sampling classifies on. Your raw `Reward.reward` is kept in the trace under `data.reward` and inside `eval_result`.
+
+**Reflector settings.** The agent has `shell` and `editor`, runs with a sliding window of 120 messages with the task message pinned (`window_size`, `pin_first`, `compression_threshold`), and is rebuilt and re-run on a transient Bedrock error (`retry_attempts`, `retry_backoff_s`); agent-written paths are cleared between attempts. `agent_tools` names the toolset for the census and defaults to the tool-description formula's base.
+
+**Delivery to a runtime.** `formula.get_tunable_params()` gives the three things to ship: the prompt string, the materialized skill directory (pack it inline as `skills_folder`, see the skill-library examples), and the sparse `tool_descriptions` overrides. A runtime applies the overrides by patching only the named tools; every other tool keeps its own description.
+
 ## Built-in Optimizers
 
 - [ContrastiveReflectionOptimizer](./optimizers/contrastive-reflection.md) — contrastive learning on rollout traces
+- `SkillLibraryOptimizer` — curate a library of skills from rollout traces (see [Formulas](formulas.md#using-skilllibraryformula))
+- `MultiSurfaceOptimizer` — prompt, skills and tool descriptions in one pass (above)
 
 ## What's Next
 

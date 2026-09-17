@@ -318,6 +318,14 @@ class TestCollectDecisions:
         (tmp_path / "retire.txt").write_text("a\n\n  \nb\n")
         assert collect_decisions(str(tmp_path))["retire"] == ["a", "b"]
 
+    def test_update_is_an_alias_of_optimize(self, tmp_path):
+        """The multi-surface templates write update/; the set algebra reads optimize/."""
+        write_skill(tmp_path / "optimize", "a", body="A")
+        write_skill(tmp_path / "update", "b", body="B")
+        d = collect_decisions(str(tmp_path))
+        assert sorted(os.path.basename(x) for x in d["optimize"]) == ["a", "b"]
+        assert d["create"] == []
+
 
 class TestProcess:
     def test_cold_start_leaves_context_untouched(self):

@@ -137,5 +137,9 @@ appworld_skill_runs/
 webshop_skill_runs/
 _skills/
 
+# Multi-surface optimization output (step_NNNN/ per reflector step).
+appworld_multi_surface_runs/
+webshop_multi_surface_runs/
+
 # AppWorld task CSVs are generated at build time (examples/appworld/appworld_runtime/generate_csvs.py)
 datasets/appworld/

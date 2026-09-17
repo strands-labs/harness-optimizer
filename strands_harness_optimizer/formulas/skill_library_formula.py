@@ -40,7 +40,10 @@ logger = logging.getLogger(__name__)
 
 # Written by the optimizer agent, read by _collect_decisions.
 CREATE_DIRS = ("create", "deploy")  # "deploy" accepted as a legacy alias
-OPTIMIZE_DIR = "optimize"
+# "update" is the word the multi-surface templates use for the same operation:
+# a revised body for a deployed skill, under its existing name.
+OPTIMIZE_DIRS = ("optimize", "update")
+OPTIMIZE_DIR = OPTIMIZE_DIRS[0]  # kept for callers that imported the old name
 RETIRE_FILE = "retire.txt"
 MANIFEST_FILE = "manifest.json"
 
@@ -300,6 +303,7 @@ def collect_decisions(out_dir: str) -> dict:
     """Read an optimizer agent's decision tree off disk.
 
     Returns ``{"create": [paths], "optimize": [paths], "retire": [names]}``.
+    ``optimize`` collects both ``optimize/`` and its alias ``update/``.
     Presence on disk is the source of truth — not what the agent said it did — so
     a write that silently failed cannot be recorded as a change.
     """
@@ -309,9 +313,10 @@ def collect_decisions(out_dir: str) -> dict:
         if os.path.isdir(d):
             out["create"] = skill_dirs_in(d)
             break
-    d = os.path.join(out_dir, OPTIMIZE_DIR)
-    if os.path.isdir(d):
-        out["optimize"] = skill_dirs_in(d)
+    for folder in OPTIMIZE_DIRS:
+        d = os.path.join(out_dir, folder)
+        if os.path.isdir(d):
+            out["optimize"].extend(skill_dirs_in(d))
     f = os.path.join(out_dir, RETIRE_FILE)
     if os.path.isfile(f):
         with open(f) as fh:

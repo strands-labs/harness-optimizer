@@ -8,7 +8,12 @@ from jinja2.sandbox import SandboxedEnvironment
 # Built-in templates live under strands_harness_optimizer/templates/
 _BUILTIN_TEMPLATE_DIR = os.path.join(os.path.dirname(__file__), os.pardir, "templates")
 
-_ENV = SandboxedEnvironment(autoescape=True)
+# autoescape is OFF. These templates render prompts for an LLM, not HTML: with
+# escaping on, a system prompt or tool description passed in as a variable came out
+# with `"` as `&#34;` and `<` as `&lt;`, and the optimizer then reasoned about, and
+# wrote back, text that was never in the agent. Sandboxing is unrelated to escaping
+# and stays on.
+_ENV = SandboxedEnvironment(autoescape=False)
 
 
 def create_template(source: str) -> Template:

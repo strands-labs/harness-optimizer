@@ -12,6 +12,8 @@ no ``agent_customizer`` dependency) so this example depends only on
   OpenAI-compatible endpoint) with MCP + extra tools and a bounded window.
 - ``install_skills`` — materialize an inline ``skills_folder`` payload onto disk
   and (re)attach the ``AgentSkills`` plugin, for skill-library optimization.
+- ``apply_tool_descriptions`` — patch the agent's tool descriptions for one
+  invocation from a ``tool_descriptions`` payload, for multi-surface optimization.
 """
 
 import logging
@@ -336,3 +338,52 @@ def install_skills(agent: Any, skills_folder: Optional[List[Dict[str, str]]]) ->
     else:
         logger.info("installed %d skill(s): %s", len(loaded), ", ".join(sorted(loaded)))
     return len(loaded)
+
+
+# --- tool descriptions (multi-surface optimization) ----------------------------
+
+# The runtime's own descriptions, captured on the first call so every later
+# invocation can start from them. Without this, an override applied on iteration N
+# would linger into iteration N+1 after the optimizer dropped it.
+_TOOL_DESCRIPTION_DEFAULTS: Dict[str, str] = {}
+
+
+def apply_tool_descriptions(agent: Any, overrides: Optional[Dict[str, str]]) -> List[str]:
+    """Patch tool descriptions for THIS invocation; tools not named revert to default.
+
+    ``overrides`` is the sparse ``{tool_name: description}`` the multi-surface
+    optimizer ships as the ``tool_descriptions`` payload key: only the tools it
+    edited. Every other tool keeps the description its docstring gave it, which is
+    what lets the client send edits alone and never a full copy of the toolset.
+
+    Patching goes through ``StrandsAdapter``, the same seam the library uses for
+    in-process agents (``tool_spec["description"]`` for ``@tool`` functions,
+    ``mcp_tool.description`` for MCP tools), so there is one implementation of it.
+
+    Returns the tool names actually patched. Unknown names are logged and skipped,
+    never raised: a stale name must not abort an invocation, but it must not pass
+    silently either, since a run that quietly applied nothing looks exactly like
+    "the edit did not help".
+    """
+    from strands_harness_optimizer.adapters import StrandsAdapter
+
+    adapter = StrandsAdapter()
+    current = adapter.extract_context(agent).get("tool_descriptions") or {}
+    if not _TOOL_DESCRIPTION_DEFAULTS:
+        _TOOL_DESCRIPTION_DEFAULTS.update(current)
+    # Reset first, then apply, so an override that disappeared between iterations
+    # does not survive on the live tool object.
+    adapter.apply_tool_descriptions(agent, dict(_TOOL_DESCRIPTION_DEFAULTS))
+    clean = {
+        str(k): v for k, v in (overrides or {}).items() if isinstance(v, str) and v.strip()
+    }
+    if not clean:
+        return []
+    applied = adapter.apply_tool_descriptions(agent, clean)
+    missing = sorted(set(clean) - set(applied))
+    if missing:
+        logger.warning(
+            "tool_descriptions: %d of %d NOT applied: %s (agent has: %s)",
+            len(missing), len(clean), missing, sorted(current),
+        )
+    return applied

@@ -99,14 +99,17 @@ The unified context dict uses standardized keys:
 
 ```python
 {
-    "system_prompt": str,   # The agent's system prompt
-    "messages": list[dict], # Conversation history
+    "system_prompt": str,              # The agent's system prompt
+    "messages": list[dict],            # Conversation history
+    "skills": list[Skill],             # Skills in the agent's AgentSkills plugin (when attached)
+    "tool_descriptions": dict[str, str],  # {tool_name: description} of the registered tools
     # Future support planned:
-    # "tools": list[dict],        # Tool definitions and configurations
-    # "skills": list[dict],       # Modular instruction sets
+    # "tools": list[dict],        # Tool definitions beyond the description text
     # "mcp_servers": list[dict],  # MCP server configurations
 }
 ```
+
+On the strands adapter, `skills` is read from and written to the `AgentSkills` plugin, and `tool_descriptions` is read from the agent's tool registry and written back by patching each named tool's spec in place (`mcp_tool.description` for MCP tools, the `tool_spec` dict for `@tool` functions). Tools not named in a `tool_descriptions` update keep their current description.
 
 Formulas read from and write to this dict. The adapter handles translation to/from the framework's native representation.
 

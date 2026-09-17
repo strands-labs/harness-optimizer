@@ -59,18 +59,20 @@ python examples/appworld/appworld_agentcore_optimization.py
 To drive a **deployed** AgentCore runtime instead, set `APPWORLD_AGENT_ARN` (and omit
 `APPWORLD_BASE_URL`); the example auto-selects `AgentCoreRolloutEngine`.
 
-## Two surfaces on one runtime
+## Three surfaces on one runtime
 
-The same container serves both optimizers — it applies whatever the payload carries:
+The same container serves all three optimizers — it applies whatever the payload carries:
 
 | surface | client | what it optimizes | payload key |
 |---|---|---|---|
 | system prompt | `appworld_agentcore_optimization.py` | the prompt text | `system_prompt` |
 | skill library | `appworld_skill_library_optimization.py` | which skills exist (create / revise / retire) | `skills_folder` |
+| all three | `appworld_multi_surface_optimization.py` | prompt, skills AND tool descriptions, each finding routed to one | `system_prompt` + `skills_folder` + `tool_descriptions` |
 
 ```bash
 ./examples/appworld/run_example.sh              # system prompt (default)
 ./examples/appworld/run_example.sh --skills     # skill library
+./examples/appworld/run_example.sh --multi      # prompt + skills + tool descriptions
 ```
 
 Skills travel **inline** in the payload as `[{path, content}]`, not as an S3 pointer,
@@ -84,6 +86,14 @@ The runtime echoes `skills_applied` in its response, and the client checks it. T
 what distinguishes *"the skills did not help"* from *"the skills never loaded"* — a
 runtime built before the `skills_folder` key ignores it silently, and the resulting flat
 reward looks identical to a real null result.
+
+Tool descriptions travel the same way: the payload carries `tool_descriptions`, a **sparse**
+`{tool_name: description}` holding only the tools the optimizer edited. The runtime patches
+those on the live agent for that invocation and resets every tool to its own docstring first,
+so an override the optimizer later drops does not linger. It echoes
+`tool_descriptions_applied`, and the client checks it. The optimizer starts from
+`appworld_runtime/prompts/tool_descriptions.yaml`, generated from the `@tool` docstrings by
+`appworld_runtime/dump_tool_descriptions.py`; re-run that script when a docstring changes.
 
 Reward for the curator comes from the same place as the prompt optimizer's:
 `eval_result.metrics.success` — success (binary).

@@ -4,7 +4,7 @@
 # system-prompt optimizer against it (the local-container / HTTP-engine path).
 #
 # Usage:
-#   ./run_example.sh [-f DOCKERFILE] [-s SPLIT] [-t TASK_IDS] [-p PORT] [--skills] [--build-only] [--no-build]
+#   ./run_example.sh [-f DOCKERFILE] [-s SPLIT] [-t TASK_IDS] [-p PORT] [--skills|--multi] [--build-only] [--no-build]
 #
 #   -f  Dockerfile to build (default: appworld_runtime/Dockerfile.amd64 — fully public,
 #       Bedrock, dual venv). Use Dockerfile.arm64 for the arm64 build AgentCore runs.
@@ -14,6 +14,8 @@
 #   -p  Host port to publish the runtime on (default: 8080).
 #   --skills       Optimize the SKILL LIBRARY instead of the system prompt
 #                  (runs *_skill_library_optimization.py; skills ship inline in the payload).
+#   --multi        Optimize system prompt, skill library AND tool descriptions together
+#                  (runs *_multi_surface_optimization.py).
 #   --build-only   Build the image and exit.
 #   --no-build     Skip building; assume the image already exists.
 #
@@ -38,7 +40,7 @@ IMAGE="appworld-runtime"
 CONTAINER="appworld-runtime"
 BUILD=1
 RUN_OPTIMIZER=1
-SURFACE="system_prompt"   # --skills switches to the skill-library client
+SURFACE="system_prompt"   # --skills: skill-library client; --multi: multi-surface client
 AWS_REGION="${AWS_REGION:-us-west-2}"
 
 # --- args ---
@@ -49,6 +51,7 @@ while [[ $# -gt 0 ]]; do
     -s) SPLIT="$2"; shift 2 ;;         # which split to train on (train/dev/test_normal/...)
     -p) PORT="$2"; shift 2 ;;
     --skills) SURFACE="skills"; shift ;;
+    --multi) SURFACE="multi"; shift ;;
     --build-only) RUN_OPTIMIZER=0; shift ;;
     --no-build) BUILD=0; shift ;;
     -h|--help) sed -n '2,30p' "$0"; exit 0 ;;
@@ -164,6 +167,9 @@ fi
 if [[ "$SURFACE" == "skills" ]]; then
   echo ">> Optimizing the SKILL LIBRARY (AppWorld)"
   python3 examples/appworld/appworld_skill_library_optimization.py
+elif [[ "$SURFACE" == "multi" ]]; then
+  echo ">> Optimizing SYSTEM PROMPT + SKILL LIBRARY + TOOL DESCRIPTIONS (AppWorld)"
+  python3 examples/appworld/appworld_multi_surface_optimization.py
 else
   echo ">> Optimizing the SYSTEM PROMPT (AppWorld)"
   python3 examples/appworld/appworld_agentcore_optimization.py

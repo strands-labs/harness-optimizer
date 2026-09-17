@@ -1,6 +1,7 @@
 """Optimization framework — define how to optimize Formula parameters."""
 
 from .base_agentic_optimizer import BaseAgenticOptimizer
+from .multi_surface import MultiSurfaceOptimizer
 from .optimizer import FormulaOptimizer
 from .skills import SkillLibraryOptimizer
 from .system_prompt import ContrastiveReflectionOptimizer, MultiAgentOptimizer
@@ -11,4 +12,5 @@ __all__ = [
     "ContrastiveReflectionOptimizer",
     "MultiAgentOptimizer",
     "SkillLibraryOptimizer",
+    "MultiSurfaceOptimizer",
 ]

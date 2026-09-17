@@ -194,11 +194,15 @@ class BaseAgenticOptimizer(FormulaOptimizer):
         # Append suffix with tool usage instructions
         full_system_prompt = system_prompt + self.system_prompt_suffix
 
-        agent = Agent(
+        agent_kwargs = dict(
             system_prompt=full_system_prompt,
             model=model,
             tools=self._get_tools(submit_optimized_params) + self._get_extra_tools(),
         )
+        conversation_manager = self._conversation_manager()
+        if conversation_manager is not None:
+            agent_kwargs["conversation_manager"] = conversation_manager
+        agent = Agent(**agent_kwargs)
 
         # Register output truncation guardrail
         guardrail = ToolOutputGuardrail(max_chars=self.max_output_chars)
@@ -222,6 +226,17 @@ class BaseAgenticOptimizer(FormulaOptimizer):
     def _get_extra_tools(self) -> list:
         """Return additional tools for the agent. Override in subclasses."""
         return []
+
+    def _conversation_manager(self):
+        """Conversation manager for the agent, or None for Strands' default.
+
+        Strands' default is a sliding window of 40 messages with nothing pinned,
+        trimmed oldest-first. The task message is ``messages[0]``, so an agent that
+        runs long enough loses its own instructions. A subclass whose agent takes
+        many shell/editor turns should return a manager sized for that and pin the
+        task; see ``MultiSurfaceOptimizer``. ``None`` keeps existing behaviour.
+        """
+        return None
 
     def _invoke_agent(self, agent: Agent, message: str):
         """Invoke the agent and record wall-clock + Strands metrics on self."""
@@ -276,13 +291,31 @@ class BaseAgenticOptimizer(FormulaOptimizer):
         logger.info(f"Sampled {len(sampled)} of {n_traces} traces")
         return sampled
 
+    def _sample_reward(self, index: int) -> float:
+        """The scalar that classifies rollout ``index`` for stratified sampling.
+
+        ``Reward.reward`` by default. A subclass whose objective is not that number
+        (a weighted combination of scores, say) overrides this so the sample is
+        stratified on the same quantity the optimizer shows its agent.
+        """
+        return self._rewards[index].reward
+
+    def _sample_threshold(self, all_indices: list[int]) -> float:
+        """The cut between "successful" and "failed" for stratified sampling.
+
+        ``success_threshold`` by default. A subclass may adapt it to the pool, for
+        example falling back to the median when every rollout lands on one side.
+        """
+        return self.success_threshold
+
     def _stratified_sample(self, all_indices: list[int]) -> list[int]:
         """Balance successful and failed traces in sampling."""
         successful, failed = [], []
 
+        threshold = self._sample_threshold(all_indices)
         for i in all_indices:
-            reward = self._rewards[i].reward
-            if reward >= self.success_threshold:
+            reward = self._sample_reward(i)
+            if reward >= threshold:
                 successful.append(i)
             else:
                 failed.append(i)
@@ -345,6 +378,11 @@ class BaseAgenticOptimizer(FormulaOptimizer):
             metrics = (
                 {"reward": reward_value, "metadata": reward_obj.metadata} if reward_obj else {}
             )
+            # The runtime's own evaluator output, when the rollout engine kept it;
+            # otherwise the one number we have. Copied to BOTH places a reader may
+            # look: top level (invoke.py convention) and under `response` (what an
+            # AgentCore runtime actually returns).
+            eval_result = (rollout.metadata or {}).get("eval_result") or {"reward": reward_value}
             data = {
                 # Legacy nesting -- the built-in contrastive_reflection templates.
                 "data": {
@@ -355,11 +393,12 @@ class BaseAgenticOptimizer(FormulaOptimizer):
                 },
                 # invoke.py / AgentCore-runtime convention.
                 "reward": reward_value,
-                "response": {"messages": rollout.messages},
-                "eval_result": {"reward": reward_value},
+                "response": {"messages": rollout.messages, "eval_result": eval_result},
+                "eval_result": eval_result,
                 "task_id": rollout.data_sample.get("task_id", f"rollout_{i:04d}"),
                 "metrics": metrics,
             }
+            data.update(self._trace_extra(rollout, reward_obj, i))
 
             path = os.path.join(self._temp_dir, f"{self._trace_filename(rollout, i)}.json")
             with open(path, "w") as f:
@@ -367,6 +406,14 @@ class BaseAgenticOptimizer(FormulaOptimizer):
 
         logger.info(f"Wrote {len(indices)} traces to {self._temp_dir}")
         return self._temp_dir
+
+    def _trace_extra(self, rollout, reward, index: int) -> dict:
+        """Extra top-level keys for one written trace. Override in subclasses.
+
+        Keys returned here are applied LAST, so a subclass may also override a
+        default key (``reward``, say, to make it the configured objective total).
+        """
+        return {}
 
     @staticmethod
     def _trace_filename(rollout, index: int) -> str:
