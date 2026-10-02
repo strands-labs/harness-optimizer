@@ -158,21 +158,20 @@ class AgentRolloutEngine(ABC):
     def generate_batch(self, data_samples: list[dict]) -> Iterator[list[dict]]: ...
 ```
 
-### SearchController (search/)
+### CandidateSearchOptimizer (search/)
 
-Keeps several candidate formulas alive and chooses between them on data the proposer never saw.
-Where `FormulaOptimizer.step()` commits every edit, a search evaluates a parent and its child on the
-*same* items, gates on that paired comparison, and scores only admitted candidates on a held-out
-split. Parent selection, item sampling, the gate and stopping are callables, so a different strategy
-is a different function.
+A `FormulaOptimizer` that keeps several candidate formulas alive and chooses between them on data
+the proposer never saw. Where a plain optimizer's `step()` commits every edit, each search step runs
+the proposed child on the *same* samples the Trainer just ran its parent on, gates on that paired
+comparison, and scores only admitted candidates on a held-out split. Any existing
+`FormulaOptimizer` is the proposer. One Trainer epoch is one search step.
 
 ```python
-class SearchController:
-    def __init__(self, seed: Candidate, generator: CandidateGenerator,
-                 engine: AgentRolloutEngine, reward_fn: RewardFunction,
-                 feedback_items: Sequence[str], selection_items: Sequence[str],
-                 parent_selection=..., item_sampling=..., gate=..., stopping=...): ...
-    def run(self, max_iterations: int | None = None) -> SearchResult: ...
+search = CandidateSearchOptimizer(formula, proposer, engine, reward_fn, selection_samples,
+                                  parent_selection=..., gate=..., proposal_guard=...,
+                                  rollout_view=...)
+Trainer(formula, search, reward_fn, search.engine, dataloader, n_epochs=8).fit()
+result = search.finalize()   # the formula now holds result.best
 ```
 
 See the [Search user guide](docs/user-guide/search.md).
@@ -216,9 +215,10 @@ strands_harness_optimizer/
 ├── search/                         # Candidate search over formula versions
 │   ├── candidate.py                # Candidate (immutable snapshot + lineage)
 │   ├── evaluation.py               # EvaluationStore, EvaluationRecord, RolloutStatus
-│   ├── controller.py               # SearchController, CandidateGenerator
-│   ├── policies.py                 # parent selection, sampling, gate, stopping
-│   ├── views.py                    # FeedbackView: what the proposer may see
+│   ├── optimizer.py                # CandidateSearchOptimizer, SearchResult
+│   ├── sampler.py                  # SearchSampler: item sampling for the DataLoader
+│   ├── policies.py                 # parent selection, item sampling, gate
+│   ├── views.py                    # rollout views: what the proposer may see
 │   └── guards.py                   # checks on a proposal before it costs rollouts
 ├── templates/                      # Jinja2 templates for optimizers
 │   └── contrastive_reflection/

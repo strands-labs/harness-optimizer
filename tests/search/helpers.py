@@ -1,17 +1,18 @@
 """Synthetic doubles for the search control plane.
 
 Nothing here reads a dataset, a cluster, or a model. A "task" is a table of scores, which is
-enough to exercise every decision the controller makes and keeps these tests runnable by anyone.
+enough to exercise every decision the search makes and keeps these tests runnable by anyone.
 """
 
 from __future__ import annotations
 
 from typing import Iterator, Mapping, Sequence
 
+from strands_harness_optimizer.data import Dataset
 from strands_harness_optimizer.datamodels import Reward, Rollout
 from strands_harness_optimizer.formulas import Formula
+from strands_harness_optimizer.optimizers import FormulaOptimizer
 from strands_harness_optimizer.rollout_engines import AgentRolloutEngine
-from strands_harness_optimizer.search.candidate import Candidate
 
 
 class DictFormula(Formula):
@@ -29,6 +30,19 @@ class DictFormula(Formula):
 
     def update_params(self, params: dict) -> None:
         self.params.update(params)
+
+
+class ListDataset(Dataset):
+    """Samples carrying an item id and a prompt, so a test can tell full samples from bare ids."""
+
+    def __init__(self, item_ids: Sequence[str]):
+        self.samples = [{"item_id": i, "prompt": f"question {i}"} for i in item_ids]
+
+    def __getitem__(self, index):
+        return self.samples[index]
+
+    def __len__(self):
+        return len(self.samples)
 
 
 class TableEngine(AgentRolloutEngine):
@@ -50,6 +64,7 @@ class TableEngine(AgentRolloutEngine):
         self.default = dict(default or {})
         self.statuses = dict(statuses or {})
         self.calls: list[tuple[str, str, int]] = []
+        self.samples_seen: list[list[dict]] = []
 
     def ensure_sync_params(self) -> None:
         return None
@@ -58,6 +73,7 @@ class TableEngine(AgentRolloutEngine):
         if data_samples:
             s0 = data_samples[0]
             self.calls.append((str(s0["candidate_id"]), str(s0["role"]), len(data_samples)))
+            self.samples_seen.append([dict(s) for s in data_samples])
         for s in data_samples:
             cid, item = str(s["candidate_id"]), str(s["item_id"])
             scores = self.table.get((cid, item), self.default.get(cid, [0.0]))
@@ -79,15 +95,20 @@ class ScoreReward:
         )
 
 
-class ScriptedGenerator:
-    """Return a scripted sequence of parameter dicts, recording what it was asked to extend."""
+class ScriptedOptimizer(FormulaOptimizer):
+    """Propose a scripted sequence of parameter dicts by editing the formula, like any optimizer.
 
-    def __init__(self, params: Sequence[Mapping[str, str]]):
+    Records the parameters it started from (the parent the search materialised) and the rollouts it
+    was fed, so a test can check both.
+    """
+
+    def __init__(self, formula: Formula, params: Sequence[Mapping[str, str]]):
+        super().__init__(formula)
         self.params = list(params)
-        self.seen_parents: list[str] = []
-        self.seen_views: list[object] = []
+        self.seen_params: list[dict] = []
+        self.seen_rollouts: list[list[Rollout]] = []
 
-    def propose(self, parent: Candidate, view) -> Mapping[str, str]:
-        self.seen_parents.append(parent.candidate_id)
-        self.seen_views.append(view)
-        return self.params[len(self.seen_parents) - 1]
+    def step(self) -> None:
+        self.seen_params.append(dict(self.formula.get_tunable_params()))
+        self.seen_rollouts.append(list(self._rollouts))
+        self.formula.update_params(dict(self.params[len(self.seen_params) - 1]))

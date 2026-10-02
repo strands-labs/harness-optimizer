@@ -1,8 +1,9 @@
 """Callable policies for the search loop.
 
-Kept as plain functions and small closures rather than a class hierarchy: there are four
-decision points, each is a few lines, and every one of them is something a caller may want to
-replace. A factory returns a closure when a policy needs configuration.
+Kept as plain functions and small closures rather than a class hierarchy: there are three
+decision points — parent selection, item sampling and the gate — each is a few lines, and every one
+of them is something a caller may want to replace. A factory returns a closure when a policy needs
+configuration. There is no stopping policy: the number of steps is the Trainer's `n_epochs`.
 
 The defaults reproduce the loop this design replaces, so that a replay of recorded runs can be
 compared decision by decision. Alternatives (a gate with a margin, a per-item Pareto selector)
@@ -170,16 +171,29 @@ def stratified_sampler(
     this was measured on — so a uniform draw spends its rollouts where there is no signal to
     reflect on. This is a different decision from balancing traces after the fact: it chooses
     where to spend rollouts in the first place.
+
+    Items are bucketed by `scores` when given — under `SearchSampler` that is the search's running
+    map, `CandidateSearchOptimizer.item_scores` — and otherwise by the parent's own latest feedback
+    scores. The running map is what to use: bucketing by the parent's own scores alone confines an
+    admitted child to the one batch it was admitted on, so every later step draws that batch again.
+    An item with no score at all is drawn as "never": not yet measured is as worth showing the
+    proposer as not yet solved, and leaving it out would shrink the pool to what was measured.
     """
     rng = random.Random(seed)
 
     def policy(
-        iteration: int, parent: Candidate, store: EvaluationStore, items: Sequence[str]
+        iteration: int,
+        parent: Candidate,
+        store: EvaluationStore,
+        items: Sequence[str],
+        scores: Mapping[str, float] | None = None,
     ) -> list[str]:
-        per_item = store.latest_per_item(parent.candidate_id, role)
-        if not per_item:
-            per_item = {i: 0.0 for i in items}
-        buckets = bucket_items({k: v for k, v in per_item.items() if k in set(items)})
+        measured = (
+            scores if scores is not None else store.latest_per_item(parent.candidate_id, role)
+        )
+        per_item = {i: 0.0 for i in items}
+        per_item.update({k: v for k, v in measured.items() if k in per_item})
+        buckets = bucket_items(per_item)
         out: list[str] = []
         for name, k in quota.items():
             pool = buckets.get(name) or []
@@ -203,7 +217,11 @@ def replay_sampler(batches: Mapping[int, Sequence[str]]) -> Callable[..., list[s
     """
 
     def policy(
-        iteration: int, parent: Candidate, store: EvaluationStore, items: Sequence[str]
+        iteration: int,
+        parent: Candidate,
+        store: EvaluationStore,
+        items: Sequence[str],
+        scores: Mapping[str, float] | None = None,
     ) -> list[str]:
         if iteration not in batches:
             raise KeyError(f"no recorded batch for iteration {iteration}")
@@ -265,42 +283,5 @@ def strict_improvement(
             "items_compared": len(set(pk) & set(ck)),
             "margin": margin,
         }
-
-    return policy
-
-
-# ----------------------------------------------------------------------------- stopping
-def budget_and_saturation(
-    max_iterations: int | None = None,
-    rollout_budget: int | None = None,
-    min_unsolved: int = 0,
-    role: str = FEEDBACK_ROLE,
-) -> Callable[..., dict]:
-    """Stop on iterations, on rollout budget, or when there is nothing left unsolved.
-
-    Rollouts rather than epochs are the resource, and the useful stopping point varies by task:
-    in the recorded corpus some arms saturated after two rounds while others were still improving
-    at the cap. Saturation is measured against the *current* parent, because what counts as
-    unsolved changes as the candidate changes.
-    """
-
-    def policy(
-        iteration: int,
-        parent: Candidate,
-        store: EvaluationStore,
-        rollouts_used: int,
-        items: Sequence[str],
-    ) -> dict:
-        if max_iterations is not None and iteration > max_iterations:
-            return {"stop": True, "reason": f"iteration cap {max_iterations}"}
-        if rollout_budget is not None and rollouts_used >= rollout_budget:
-            return {"stop": True, "reason": f"rollout budget {rollout_budget} exhausted"}
-        if min_unsolved:
-            per_item = store.latest_per_item(parent.candidate_id, role)
-            b = bucket_items({k: v for k, v in per_item.items() if k in set(items)})
-            unsolved = len(b["never"]) + len(b["sometimes"])
-            if per_item and unsolved < min_unsolved:
-                return {"stop": True, "reason": f"saturated: {unsolved} unsolved < {min_unsolved}"}
-        return {"stop": False, "reason": None}
 
     return policy

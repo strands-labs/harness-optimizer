@@ -1,4 +1,4 @@
-"""The four policies, each tested on the behaviour it exists for."""
+"""The three policies, each tested on the behaviour it exists for."""
 
 import random
 
@@ -12,7 +12,6 @@ from strands_harness_optimizer.search.evaluation import (
 )
 from strands_harness_optimizer.search.policies import (
     bucket_items,
-    budget_and_saturation,
     force_sequence,
     pareto_frontier,
     replay_sampler,
@@ -159,29 +158,10 @@ def test_gate_basis_changes_the_comparison_when_an_item_is_missing_for_one_side(
     assert inter["admit"] is False
 
 
-# -------------------------------------------------------------------------- stopping
-def test_stops_on_the_iteration_cap():
-    v = budget_and_saturation(max_iterations=2)(
-        iteration=3, parent=pool("c0")[0], store=EvaluationStore(), rollouts_used=0, items=[]
-    )
-    assert v["stop"] and "iteration cap" in v["reason"]
-
-
-def test_stops_when_the_rollout_budget_is_spent():
-    v = budget_and_saturation(rollout_budget=100)(
-        iteration=1, parent=pool("c0")[0], store=EvaluationStore(), rollouts_used=100, items=[]
-    )
-    assert v["stop"] and "budget" in v["reason"]
-
-
-def test_stops_on_saturation_but_not_before_anything_is_measured():
-    items = ["i1", "i2"]
-    empty = budget_and_saturation(min_unsolved=1)(
-        iteration=1, parent=pool("c0")[0], store=EvaluationStore(), rollouts_used=0, items=items
-    )
-    assert empty["stop"] is False, "no measurements is not saturation"
-    solved = store_with({"c0": {"i1": 1.0, "i2": 1.0}}, role="feedback:1")
-    v = budget_and_saturation(min_unsolved=1)(
-        iteration=2, parent=pool("c0")[0], store=solved, rollouts_used=0, items=items
-    )
-    assert v["stop"] and "saturated" in v["reason"]
+def test_stratified_sampler_buckets_by_the_running_map_when_given_one():
+    s = store_with({"c1": {"i1": 1.0, "i2": 1.0}}, role="feedback:1")
+    draw = stratified_sampler({"never": 2}, seed=0)
+    own = draw(2, pool("c1")[0], s, ["i1", "i2", "i3", "i4"])
+    assert sorted(own) == ["i3", "i4"], "unmeasured items are drawn as never"
+    running = draw(2, pool("c1")[0], s, ["i1", "i2", "i3", "i4"], scores={"i3": 1.0, "i4": 1.0})
+    assert sorted(running) == ["i1", "i2"], "the running map, not the parent's own scores, decides"

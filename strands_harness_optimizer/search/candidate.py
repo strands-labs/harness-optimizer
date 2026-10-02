@@ -6,8 +6,8 @@ parameter dict, frozen, plus who it came from.
 
 Immutability is enforced here (the params mapping is copied and exposed read-only), but the
 Formula that executes a candidate is still a mutable object shared with the rollout engine.
-The controller therefore materialises exactly one candidate at a time and asserts the
-formula's params match before requesting any rollout; see SearchController._materialise.
+The search therefore materialises exactly one candidate at a time and asserts the formula's
+params match before requesting any rollout; see CandidateSearchOptimizer._materialise.
 """
 
 from __future__ import annotations
