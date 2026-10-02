@@ -1,4 +1,4 @@
-"""What the candidate generator is allowed to see.
+"""What the proposer is allowed to see.
 
 The upstream reflection optimizer writes the whole data sample — reference answer included — into
 files the proposer reads with a shell tool. Measured consequence on the corpus this design comes
@@ -7,37 +7,20 @@ section titled "Known gene -> answer table (use this first)", and correcting the
 moved a headline result from +10.7 to +8.9 macro. The failure was silent for a day; nothing errored
 and every reported number improved.
 
-A view therefore exists so that "what the proposer sees" is an explicit object rather than "whatever
-happens to be in the rollout", and so that the choice is recorded in the run's artifacts. The default
-withholds the reference, because the failure above is silent and a silent failure needs the safe
-default. It is not a security boundary: a proposer with shell access can read the corpus directly, and
-withholding on its own was measured to be insufficient (see `minimal_view`). Detecting leakage and
-restricting tools remain application concerns; this module only makes the decision explicit.
+A view is a function `(rollouts, rewards) -> (rollouts, rewards)` that the search applies before the
+proposer is fed, so "what the proposer sees" is an explicit choice rather than "whatever happens to
+be in the rollout", and the choice is recorded in each step's notes. It is not a security boundary:
+a proposer with shell access can read the corpus directly, and withholding on its own was measured
+to be insufficient (see `minimal_view`). Detecting leakage and restricting tools remain application
+concerns; this module only makes the decision explicit.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any, Mapping, Sequence
+import dataclasses
+from typing import Sequence
 
-from ..datamodels import Rollout
-from .evaluation import EvaluationRecord
-
-
-@dataclass
-class FeedbackView:
-    """Trajectories and outcomes handed to the generator, with the label channel explicit."""
-
-    items: list[dict] = field(default_factory=list)
-    reveals_reference: bool = False
-    fields: tuple[str, ...] = ()
-
-    def to_json(self) -> dict:
-        return {
-            "n_items": len(self.items),
-            "reveals_reference": self.reveals_reference,
-            "fields": list(self.fields),
-        }
+from ..datamodels import Reward, Rollout
 
 
 def minimal_view(
@@ -45,11 +28,15 @@ def minimal_view(
     reveal_reference: bool = False,
     keep: Sequence[str] = ("prompt", "prediction", "messages"),
 ):
-    """Build a view carrying inputs, outputs, trajectories and rewards — and, only when asked,
-    the reference answer.
+    """Keep each rollout's item id, the `keep` fields of its data sample and its trajectory — and,
+    only when asked, the reference answer.
 
     **The default withholds the reference.** Pass `reveal_reference=True` to include it, and expect
     the artifact to contain answer values if you do.
+
+    Everything not listed is dropped, `rollout.metadata` included, because an engine may put an
+    evaluator's output there and that can carry the answer. Rewards pass through unchanged: an
+    objective that reads `Reward.metadata` still needs it.
 
     Withholding is necessary and, on its own, not sufficient — worth stating because the measured
     result is counter-intuitive. Denied the answer, the proposer copied the student's own predictions
@@ -60,31 +47,26 @@ def minimal_view(
 
     What did work was *telling* the proposer not to write answers down, plus a guard on the proposal
     before it costs any rollouts. Both belong to the application: the first is a template, the second
-    a policy the controller calls. This function only decides which fields travel.
+    a policy the search calls. This function only decides which fields travel.
     """
+    fields = ("item_id", *keep) + ((reference_key,) if reveal_reference else ())
 
-    def build(rollouts: Sequence[Rollout], records: Sequence[EvaluationRecord]) -> FeedbackView:
-        by_item: dict[str, dict] = {}
-        for rec in records:
-            e = by_item.setdefault(
-                rec.item_id, {"item_id": rec.item_id, "scores": [], "statuses": []}
-            )
-            e["scores"].append(rec.score)
-            e["statuses"].append(rec.status.value)
+    def view(
+        rollouts: Sequence[Rollout], rewards: Sequence[Reward]
+    ) -> tuple[list[Rollout], list[Reward]]:
+        out = []
         for ro in rollouts:
-            item = str((ro.data_sample or {}).get("item_id"))
-            e = by_item.setdefault(item, {"item_id": item, "scores": [], "statuses": []})
-            src = dict(ro.data_sample or {})
-            for k in keep:
-                if k in src:
-                    e[k] = src[k]
-            if ro.messages:
-                e["messages"] = ro.messages
-            if reveal_reference and reference_key in src:
-                e[reference_key] = src[reference_key]
-        fields = tuple(sorted({k for v in by_item.values() for k in v}))
-        return FeedbackView(
-            items=list(by_item.values()), reveals_reference=reveal_reference, fields=fields
-        )
+            src = ro.data_sample or {}
+            out.append(
+                dataclasses.replace(
+                    ro, data_sample={k: src[k] for k in fields if k in src}, metadata={}
+                )
+            )
+        return out, list(rewards)
 
-    return build
+    view.description = {
+        "view": "minimal",
+        "fields": list(fields),
+        "reveals_reference": reveal_reference,
+    }
+    return view

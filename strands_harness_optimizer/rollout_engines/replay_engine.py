@@ -6,7 +6,7 @@ from them at no inference cost and with exact reproducibility — which is what 
 zero-tolerance test of the loop's decisions possible at all.
 
 The engine is indexed by whatever the caller puts in the data sample; the convention used here is
-(candidate_id, role, item_id), which the controller populates. A missing key raises: a replay that
+(candidate_id, role, item_id), which the search populates. A missing key raises: a replay that
 quietly substitutes a different rollout is worse than no replay.
 """
 

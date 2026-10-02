@@ -16,6 +16,7 @@ cluster, not the harness — which reproduces the behaviour of the loop this rep
 from __future__ import annotations
 
 import collections
+import dataclasses
 import json
 from dataclasses import asdict, dataclass, field
 from enum import Enum
@@ -86,6 +87,29 @@ class EvaluationStore:
         for r in records:
             self.add(r)
 
+    def relabel(self, candidate_id: str, role: str, new_candidate_id: str) -> int:
+        """Move one (candidate, role)'s records under another candidate id. Returns how many moved.
+
+        Candidate ids follow the pool size, so a rejected child carries the id the next admitted
+        child will get. Left in place, its feedback records would be merged into that later
+        candidate's history by `latest_per_item` — the scores of one document read as another's.
+        The optimizer moves them aside once the gate declines, and the file is rewritten so a
+        reloaded store agrees with the live one.
+        """
+        moved = [
+            dataclasses.replace(r, candidate_id=new_candidate_id)
+            for r in self._by.pop((candidate_id, role), [])
+        ]
+        if not moved:
+            return 0
+        self._records = [
+            r for r in self._records if (r.candidate_id, r.role) != (candidate_id, role)
+        ] + moved
+        self._by[(new_candidate_id, role)].extend(moved)
+        if self.path:
+            self.dump(self.path)
+        return len(moved)
+
     # ---- reading -----------------------------------------------------------------------
     def records(self, candidate_id: str, role: str) -> list[EvaluationRecord]:
         return list(self._by.get((candidate_id, role), ()))
@@ -94,7 +118,7 @@ class EvaluationStore:
         """Whether this candidate was already evaluated on this role.
 
         Selection sweeps were about a third of the rollout spend in the runs this design comes
-        from, so the controller asks before paying again.
+        from, so the search asks before paying again.
         """
         return bool(self._by.get((candidate_id, role)))
 
