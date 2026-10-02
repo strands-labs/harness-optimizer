@@ -21,6 +21,7 @@ export default defineConfig({
                 { label: 'Contrastive Reflection', link: '/user-guide/optimizers/contrastive-reflection/' },
               ],
             },
+            { label: 'Search', link: '/user-guide/search/' },
             { label: 'Training', link: '/user-guide/training/' },
           ],
         },

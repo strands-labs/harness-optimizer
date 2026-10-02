@@ -158,6 +158,24 @@ class AgentRolloutEngine(ABC):
     def generate_batch(self, data_samples: list[dict]) -> Iterator[list[dict]]: ...
 ```
 
+### CandidateSearchOptimizer (search/)
+
+A `FormulaOptimizer` that keeps several candidate formulas alive and chooses between them on data
+the proposer never saw. Where a plain optimizer's `step()` commits every edit, each search step runs
+the proposed child on the *same* samples the Trainer just ran its parent on, gates on that paired
+comparison, and scores only admitted candidates on a held-out split. Any existing
+`FormulaOptimizer` is the proposer. One Trainer epoch is one search step.
+
+```python
+search = CandidateSearchOptimizer(formula, proposer, engine, reward_fn, selection_samples,
+                                  parent_selection=..., gate=..., proposal_guard=...,
+                                  rollout_view=...)
+Trainer(formula, search, reward_fn, search.engine, dataloader, n_epochs=8).fit()
+result = search.finalize()   # the formula now holds result.best
+```
+
+See the [Search user guide](docs/user-guide/search.md).
+
 ## Package Structure
 
 ```
@@ -192,7 +210,16 @@ strands_harness_optimizer/
 │   ├── agent_rollout_engine.py    # AgentRolloutEngine ABC
 │   ├── parallel_engine.py         # ParallelAgentRolloutEngine (utilities)
 │   ├── local_engine.py            # LocalRolloutEngine
+│   ├── replay_engine.py           # ReplayRolloutEngine (serves recorded rollouts)
 │   └── agentcore_engine.py        # AgentCoreRolloutEngine
+├── search/                         # Candidate search over formula versions
+│   ├── candidate.py                # Candidate (immutable snapshot + lineage)
+│   ├── evaluation.py               # EvaluationStore, EvaluationRecord, RolloutStatus
+│   ├── optimizer.py                # CandidateSearchOptimizer, SearchResult
+│   ├── sampler.py                  # SearchSampler: item sampling for the DataLoader
+│   ├── policies.py                 # parent selection, item sampling, gate
+│   ├── views.py                    # rollout views: what the proposer may see
+│   └── guards.py                   # checks on a proposal before it costs rollouts
 ├── templates/                      # Jinja2 templates for optimizers
 │   └── contrastive_reflection/
 │       ├── system_prompt.jinja
