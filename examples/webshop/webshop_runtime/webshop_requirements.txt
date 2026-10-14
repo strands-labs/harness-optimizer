@@ -18,7 +18,7 @@ requests==2.27.1
 rich==12.4.4
 scikit_learn==1.1.1
 thefuzz==0.19.0
-torch==1.11.0
+torch==2.13.0
 tqdm==4.64.0
 train==0.0.5
 transformers==4.23.1
