@@ -78,6 +78,54 @@ def test_pass_at_k_reports_its_k_and_separates_from_the_mean():
     assert s.pass_at_k("c0", "sel") == (pytest.approx(0.5), 2)
 
 
+def test_pass_hat_k_rewards_consistency_not_a_single_success():
+    s = EvaluationStore()
+    # k=3: i1 always solved, i2 solved 2 of 3, i3 solved once
+    s.extend(
+        [rec("c0", "sel", "i1", r, 1.0) for r in range(3)]
+        + [rec("c0", "sel", "i2", r, sc) for r, sc in enumerate([1.0, 1.0, 0.0])]
+        + [rec("c0", "sel", "i3", r, sc) for r, sc in enumerate([1.0, 0.0, 0.0])]
+    )
+    assert s.pass_at_k("c0", "sel") == (pytest.approx(1.0), 3)
+    assert s.pass_hat_k("c0", "sel") == (pytest.approx(1 / 3), 3)
+    # pass^1 is the per-item success rate averaged over items
+    assert s.pass_hat_k("c0", "sel", k=1) == (pytest.approx((1 + 2 / 3 + 1 / 3) / 3), 1)
+    # pass^2: i1 C(3,2)/C(3,2)=1, i2 C(2,2)/C(3,2)=1/3, i3 0
+    assert s.pass_hat_k("c0", "sel", k=2) == (pytest.approx((1 + 1 / 3) / 3), 2)
+
+
+def test_pass_hat_k_defaults_to_the_smallest_replicate_count():
+    """Uneven replicates must still be compared at one k, not each item at its own n."""
+    s = EvaluationStore()
+    s.extend(
+        [rec("c0", "sel", "i1", r, sc) for r, sc in enumerate([1.0, 1.0, 1.0, 0.0])]
+        + [rec("c0", "sel", "i2", r, 1.0) for r in range(2)]
+    )
+    # i1: C(3,2)/C(4,2) = 1/2, i2: 1
+    assert s.pass_hat_k("c0", "sel") == (pytest.approx(0.75), 2)
+
+
+def test_pass_hat_k_refuses_a_k_some_item_cannot_support():
+    s = EvaluationStore()
+    s.extend(
+        [
+            rec("c0", "sel", "i1", 0, 1.0),
+            rec("c0", "sel", "i1", 1, 1.0),
+            rec("c0", "sel", "i2", 0, 1.0),
+            rec("c0", "sel", "i2", 1, 0.0, RolloutStatus.EXECUTION_ERROR),
+        ]
+    )
+    with pytest.raises(ValueError, match=r"k <= 1 .* got k=2"):
+        s.pass_hat_k("c0", "sel", k=2)
+    assert s.pass_hat_k("c0", "sel", k=2, exclude=()) == (pytest.approx(0.5), 2)
+    with pytest.raises(ValueError):
+        s.pass_hat_k("c0", "sel", k=0)
+
+
+def test_pass_hat_k_of_an_unevaluated_role_is_zero_at_k_zero():
+    assert EvaluationStore().pass_hat_k("c0", "sel") == (0.0, 0)
+
+
 def test_has_reports_whether_a_role_was_paid_for():
     s = EvaluationStore()
     assert not s.has("c1", "selection")

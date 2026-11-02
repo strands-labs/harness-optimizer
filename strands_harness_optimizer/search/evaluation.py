@@ -18,6 +18,7 @@ from __future__ import annotations
 import collections
 import dataclasses
 import json
+import math
 from dataclasses import asdict, dataclass, field
 from enum import Enum
 from typing import Any, Iterable, Mapping, Sequence
@@ -122,16 +123,22 @@ class EvaluationStore:
         """
         return bool(self._by.get((candidate_id, role)))
 
+    def _kept_scores(
+        self, candidate_id: str, role: str, exclude: Sequence[RolloutStatus]
+    ) -> dict[str, list[float]]:
+        """item -> scores of that item's replicates whose status is not excluded."""
+        ex = set(exclude)
+        g: dict[str, list[float]] = collections.defaultdict(list)
+        for r in self._by.get((candidate_id, role), ()):
+            if r.status not in ex:
+                g[r.item_id].append(r.score)
+        return g
+
     def per_item(
         self, candidate_id: str, role: str, exclude: Sequence[RolloutStatus] = DEFAULT_EXCLUDE
     ) -> dict[str, float]:
         """item -> mean score over that item's kept replicates. Items with none are absent."""
-        ex = set(exclude)
-        g: dict[str, list[float]] = collections.defaultdict(list)
-        for r in self._by.get((candidate_id, role), ()):
-            if r.status in ex:
-                continue
-            g[r.item_id].append(r.score)
+        g = self._kept_scores(candidate_id, role, exclude)
         return {k: sum(v) / len(v) for k, v in g.items() if v}
 
     def mean(
@@ -160,17 +167,38 @@ class EvaluationStore:
         pass@k across different k is meaningless. A document that lifts the mean without lifting
         this has traded commitment for discrimination, which is a different claim.
         """
-        ex = set(exclude)
-        g: dict[str, list[float]] = collections.defaultdict(list)
-        for r in self._by.get((candidate_id, role), ()):
-            if r.status in ex:
-                continue
-            g[r.item_id].append(r.score)
+        g = self._kept_scores(candidate_id, role, exclude)
         if not g:
             return 0.0, 0
         solved = sum(1 for v in g.values() if any(s > 0 for s in v))
         ks = {len(v) for v in g.values()}
         return solved / len(g), (max(ks) if ks else 0)
+
+    def pass_hat_k(
+        self,
+        candidate_id: str,
+        role: str,
+        k: int | None = None,
+        exclude: Sequence[RolloutStatus] = DEFAULT_EXCLUDE,
+    ) -> tuple[float, int]:
+        """Chance that k independent attempts at an item all succeed, averaged over items.
+
+        pass@k rewards a candidate that solves an item once; pass^k (tau-bench) rewards one that
+        solves it every time, which is what a deployed agent needs. Per item it is the unbiased
+        C(c, k) / C(n, k) over n kept replicates with c successes, so items measured at different
+        n still agree on one k. `k` defaults to the smallest n across items. An explicit k larger
+        than some item's n raises rather than dropping that item, since a silently shrunk item
+        set is not the same measurement.
+        """
+        g = self._kept_scores(candidate_id, role, exclude)
+        if not g:
+            return 0.0, 0
+        n_min = min(map(len, g.values()))
+        k = n_min if k is None else k
+        if not 1 <= k <= n_min:
+            raise ValueError(f"pass^k needs 1 <= k <= {n_min} (fewest kept replicates), got k={k}")
+        total = sum(math.comb(sum(s > 0 for s in v), k) / math.comb(len(v), k) for v in g.values())
+        return total / len(g), k
 
     def latest_per_item(
         self,

@@ -94,7 +94,13 @@ epoch:
 store.per_item(candidate_id, role="selection")   # {item_id: mean score}
 store.mean(candidate_id, role="selection")
 store.pass_at_k(candidate_id, role="selection")  # (value, k)
+store.pass_hat_k(candidate_id, role="selection")  # (value, k), all k attempts succeed
 ```
+
+`pass_at_k` counts an item solved once as solved; `pass_hat_k` (pass^k from tau-bench) is the chance
+that k independent attempts all succeed, estimated per item as C(c, k) / C(n, k). It defaults to the
+smallest replicate count across items; pass `k=` to choose one, and it raises if some item has fewer
+kept replicates than that.
 
 Feedback is recorded per step (`feedback:1`, `feedback:2`, ...) so the gate compares one batch. A
 rejected child's records are moved to `cN~rejected:<step>`: candidate ids follow the pool size, so the
