@@ -123,6 +123,17 @@ class EvaluationStore:
         """
         return bool(self._by.get((candidate_id, role)))
 
+    def _kept_scores(
+        self, candidate_id: str, role: str, exclude: Sequence[RolloutStatus]
+    ) -> dict[str, list[float]]:
+        """item -> scores of that item's replicates whose status is not excluded."""
+        ex = set(exclude)
+        g: dict[str, list[float]] = collections.defaultdict(list)
+        for r in self._by.get((candidate_id, role), ()):
+            if r.status not in ex:
+                g[r.item_id].append(r.score)
+        return g
+
     def per_item(
         self, candidate_id: str, role: str, exclude: Sequence[RolloutStatus] = DEFAULT_EXCLUDE
     ) -> dict[str, float]:
@@ -189,26 +200,14 @@ class EvaluationStore:
         than some item's n raises rather than dropping that item, since a silently shrunk item
         set is not the same measurement.
         """
-        ex = set(exclude)
-        g: dict[str, list[float]] = collections.defaultdict(list)
-        for r in self._by.get((candidate_id, role), ()):
-            if r.status in ex:
-                continue
-            g[r.item_id].append(r.score)
+        g = self._kept_scores(candidate_id, role, exclude)
         if not g:
             return 0.0, 0
-        n_min = min(len(v) for v in g.values())
-        if k is None:
-            k = n_min
-        if k < 1:
-            raise ValueError(f"k must be at least 1, got {k}")
-        if k > n_min:
-            short = sorted(i for i, v in g.items() if len(v) < k)
-            raise ValueError(f"pass^{k} needs {k} kept replicates per item; short: {short}")
-        total = 0.0
-        for v in g.values():
-            c = sum(1 for s in v if s > 0)
-            total += math.comb(c, k) / math.comb(len(v), k)
+        n_min = min(map(len, g.values()))
+        k = n_min if k is None else k
+        if not 1 <= k <= n_min:
+            raise ValueError(f"pass^k needs 1 <= k <= {n_min} (fewest kept replicates), got k={k}")
+        total = sum(math.comb(sum(s > 0 for s in v), k) / math.comb(len(v), k) for v in g.values())
         return total / len(g), k
 
     def latest_per_item(

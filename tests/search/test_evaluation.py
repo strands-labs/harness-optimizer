@@ -115,7 +115,7 @@ def test_pass_hat_k_refuses_a_k_some_item_cannot_support():
             rec("c0", "sel", "i2", 1, 0.0, RolloutStatus.EXECUTION_ERROR),
         ]
     )
-    with pytest.raises(ValueError, match="i2"):
+    with pytest.raises(ValueError, match=r"k <= 1 .* got k=2"):
         s.pass_hat_k("c0", "sel", k=2)
     assert s.pass_hat_k("c0", "sel", k=2, exclude=()) == (pytest.approx(0.5), 2)
     with pytest.raises(ValueError):
