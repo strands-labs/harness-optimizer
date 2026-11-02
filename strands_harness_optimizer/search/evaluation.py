@@ -18,6 +18,7 @@ from __future__ import annotations
 import collections
 import dataclasses
 import json
+import math
 from dataclasses import asdict, dataclass, field
 from enum import Enum
 from typing import Any, Iterable, Mapping, Sequence
@@ -171,6 +172,44 @@ class EvaluationStore:
         solved = sum(1 for v in g.values() if any(s > 0 for s in v))
         ks = {len(v) for v in g.values()}
         return solved / len(g), (max(ks) if ks else 0)
+
+    def pass_hat_k(
+        self,
+        candidate_id: str,
+        role: str,
+        k: int | None = None,
+        exclude: Sequence[RolloutStatus] = DEFAULT_EXCLUDE,
+    ) -> tuple[float, int]:
+        """Chance that k independent attempts at an item all succeed, averaged over items.
+
+        pass@k rewards a candidate that solves an item once; pass^k (tau-bench) rewards one that
+        solves it every time, which is what a deployed agent needs. Per item it is the unbiased
+        C(c, k) / C(n, k) over n kept replicates with c successes, so items measured at different
+        n still agree on one k. `k` defaults to the smallest n across items. An explicit k larger
+        than some item's n raises rather than dropping that item, since a silently shrunk item
+        set is not the same measurement.
+        """
+        ex = set(exclude)
+        g: dict[str, list[float]] = collections.defaultdict(list)
+        for r in self._by.get((candidate_id, role), ()):
+            if r.status in ex:
+                continue
+            g[r.item_id].append(r.score)
+        if not g:
+            return 0.0, 0
+        n_min = min(len(v) for v in g.values())
+        if k is None:
+            k = n_min
+        if k < 1:
+            raise ValueError(f"k must be at least 1, got {k}")
+        if k > n_min:
+            short = sorted(i for i, v in g.items() if len(v) < k)
+            raise ValueError(f"pass^{k} needs {k} kept replicates per item; short: {short}")
+        total = 0.0
+        for v in g.values():
+            c = sum(1 for s in v if s > 0)
+            total += math.comb(c, k) / math.comb(len(v), k)
+        return total / len(g), k
 
     def latest_per_item(
         self,
