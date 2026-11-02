@@ -138,12 +138,7 @@ class EvaluationStore:
         self, candidate_id: str, role: str, exclude: Sequence[RolloutStatus] = DEFAULT_EXCLUDE
     ) -> dict[str, float]:
         """item -> mean score over that item's kept replicates. Items with none are absent."""
-        ex = set(exclude)
-        g: dict[str, list[float]] = collections.defaultdict(list)
-        for r in self._by.get((candidate_id, role), ()):
-            if r.status in ex:
-                continue
-            g[r.item_id].append(r.score)
+        g = self._kept_scores(candidate_id, role, exclude)
         return {k: sum(v) / len(v) for k, v in g.items() if v}
 
     def mean(
@@ -172,12 +167,7 @@ class EvaluationStore:
         pass@k across different k is meaningless. A document that lifts the mean without lifting
         this has traded commitment for discrimination, which is a different claim.
         """
-        ex = set(exclude)
-        g: dict[str, list[float]] = collections.defaultdict(list)
-        for r in self._by.get((candidate_id, role), ()):
-            if r.status in ex:
-                continue
-            g[r.item_id].append(r.score)
+        g = self._kept_scores(candidate_id, role, exclude)
         if not g:
             return 0.0, 0
         solved = sum(1 for v in g.values() if any(s > 0 for s in v))
